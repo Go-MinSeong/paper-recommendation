@@ -147,11 +147,16 @@ class VectorStoreService:
         """
         try:
             log.info(f"Searching for papers similar to: '{query_text[:50]}...'")
+            log.debug(f"[Service] Full query text: '{query_text}'")
+            log.debug(f"[Service] Search params: top_k={top_k}, min_score={min_score}")
 
             # Generate embedding for query
+            log.debug("[Service] Generating embedding for query text...")
             query_embedding = await self.embeddings.embed_text(query_text)
+            log.debug(f"[Service] Generated embedding with {len(query_embedding)} dimensions")
 
             # Search in Milvus
+            log.debug("[Service] Executing vector search in Milvus...")
             results = await self.milvus.search(
                 query_embedding=query_embedding,
                 top_k=top_k,
@@ -159,6 +164,16 @@ class VectorStoreService:
             )
 
             log.info(f"Found {len(results)} similar papers")
+
+            # Log search results summary
+            if results:
+                for i, paper in enumerate(results):
+                    log.debug(
+                        f"[Service] Result {i+1}: '{paper['title'][:60]}...' "
+                        f"(score={paper['score']:.4f}, upvotes={paper['upvotes']})"
+                    )
+            else:
+                log.debug("[Service] No papers matched the search criteria")
 
             return results
 

@@ -122,6 +122,10 @@ class MilvusClient:
             self._collection.load()
             log.info(f"Collection '{self.collection_name}' loaded into memory")
 
+            # Log collection statistics
+            num_entities = self._collection.num_entities
+            log.debug(f"[DB Stats] Collection '{self.collection_name}' contains {num_entities} papers")
+
         except Exception as e:
             error_msg = f"Failed to ensure collection: {str(e)}"
             log.error(error_msg)
@@ -274,7 +278,16 @@ class MilvusClient:
 
             log.info(f"Inserting {len(paper_ids)} papers into Milvus")
 
+            # Log papers being inserted
+            for i, (pid, title) in enumerate(zip(paper_ids, titles)):
+                log.debug(f"[Insert] Paper {i+1}: ID={pid}, Title='{title[:50]}...'")
+
             insert_result = self._collection.insert(data)
+
+            # Flush to ensure data is persisted
+            self._collection.flush()
+            current_count = self._collection.num_entities
+            log.debug(f"[Insert] Collection now contains {current_count} papers after insert")
 
             log.info(f"Successfully inserted {len(insert_result.primary_keys)} papers")
 
@@ -319,6 +332,10 @@ class MilvusClient:
         try:
             log.info(f"Searching for top {top_k} similar papers (min_score={min_score})")
 
+            # Log query embedding info
+            log.debug(f"[Search] Query embedding dimension: {len(query_embedding)}")
+            log.debug(f"[Search] Query embedding sample (first 5): {query_embedding[:5]}")
+
             search_params = {
                 "metric_type": "COSINE",
                 "params": {"nprobe": 10},
@@ -332,10 +349,20 @@ class MilvusClient:
                 output_fields=["paper_id", "title", "abstract", "url", "upvotes"],
             )
 
+            # Log raw search results
+            total_hits = sum(len(hits) for hits in results)
+            log.debug(f"[Search] Raw results from Milvus: {total_hits} hits")
+
             # Filter and format results
             filtered_results = []
+            filtered_out_count = 0
             for hits in results:
                 for hit in hits:
+                    log.debug(
+                        f"[Search] Paper: '{hit.entity.get('title', 'N/A')[:50]}...' | "
+                        f"Score: {hit.score:.4f} | "
+                        f"Pass threshold: {hit.score >= min_score}"
+                    )
                     if hit.score >= min_score:
                         filtered_results.append({
                             "paper_id": hit.entity.get("paper_id"),
@@ -345,11 +372,14 @@ class MilvusClient:
                             "upvotes": hit.entity.get("upvotes"),
                             "score": float(hit.score),
                         })
+                    else:
+                        filtered_out_count += 1
 
             # Sort by score and limit to top_k
             filtered_results.sort(key=lambda x: x["score"], reverse=True)
             filtered_results = filtered_results[:top_k]
 
+            log.debug(f"[Search] Filtered out {filtered_out_count} papers below min_score={min_score}")
             log.info(f"Found {len(filtered_results)} papers matching criteria")
 
             return filtered_results

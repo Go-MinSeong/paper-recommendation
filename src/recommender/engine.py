@@ -108,30 +108,50 @@ class RecommendationEngine:
             log.info(
                 f"Generating recommendations for user {user_interest.user_id}: '{user_interest.interest[:50]}...'"
             )
+            log.debug(f"[Engine] User ID: {user_interest.user_id}")
+            log.debug(f"[Engine] Full interest text: '{user_interest.interest}'")
+            log.debug(f"[Engine] Config: top_k={self.top_k}, min_score={self.min_score}")
 
             # Search for similar papers
+            log.debug("[Engine] Step 1: Searching for similar papers in vector store...")
             similar_papers = await self.vector_store.search_similar_papers(
                 query_text=user_interest.interest,
                 top_k=self.top_k,
                 min_score=self.min_score,
             )
 
+            log.debug(f"[Engine] Vector search returned {len(similar_papers)} papers")
+
             if not similar_papers:
                 log.warning("No papers found matching the criteria")
+                log.debug(
+                    f"[Engine] Possible reasons: "
+                    f"1) No papers in DB, "
+                    f"2) No papers above min_score={self.min_score}, "
+                    f"3) Interest too specific"
+                )
                 return []
 
             # Generate summaries for each paper
+            log.debug("[Engine] Step 2: Generating summaries for matched papers...")
             recommendations: list[Recommendation] = []
 
-            for paper in similar_papers:
+            for idx, paper in enumerate(similar_papers):
                 try:
+                    log.debug(
+                        f"[Engine] Processing paper {idx+1}/{len(similar_papers)}: "
+                        f"'{paper['title'][:50]}...' (score={paper['score']:.4f})"
+                    )
+
                     # Generate core summary
+                    log.debug(f"[Engine] Generating core summary for paper {idx+1}...")
                     core_summary = await self.summarizer.generate_core_summary(
                         title=paper["title"],
                         abstract=paper["abstract"],
                     )
 
                     # Generate contextualized summary
+                    log.debug(f"[Engine] Generating contextualized summary for paper {idx+1}...")
                     contextualized_summary = (
                         await self.summarizer.generate_contextualized_summary(
                             title=paper["title"],
@@ -155,14 +175,16 @@ class RecommendationEngine:
                     recommendations.append(recommendation)
 
                     log.debug(
-                        f"Generated recommendation for paper: {paper['title'][:50]}..."
+                        f"[Engine] Successfully created recommendation for paper {idx+1}: "
+                        f"'{paper['title'][:50]}...'"
                     )
 
                 except Exception as e:
-                    log.error(f"Failed to generate summaries for paper: {e}")
+                    log.error(f"Failed to generate summaries for paper {idx+1}: {e}")
                     continue
 
             log.info(f"Generated {len(recommendations)} recommendations")
+            log.debug(f"[Engine] Recommendation generation complete. Returning {len(recommendations)} results.")
 
             return recommendations
 
