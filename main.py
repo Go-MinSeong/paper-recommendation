@@ -41,6 +41,7 @@ async def lifespan(app: FastAPI) -> Any:
     from src.recommender.engine import RecommendationEngine
     from mcp_servers.interest_manager.storage import InterestStorage
     from src.slack.app import create_slack_app, start_socket_mode
+    from src.scheduler import PaperCollectionScheduler
 
     # 1. Initialize Vector Store
     log.info("Initializing Vector Store...")
@@ -68,7 +69,21 @@ async def lifespan(app: FastAPI) -> Any:
     storage = InterestStorage()
     log.info("Interest Storage initialized")
 
-    # 5. Create and start Slack App
+    # 5. Initialize and Start Paper Collection Scheduler
+    log.info("Initializing Paper Collection Scheduler...")
+    scheduler = PaperCollectionScheduler(
+        vector_store=vector_store,
+        interval_hours=settings.collection_interval_hours,
+        paper_limit=settings.paper_collection_limit,
+    )
+    log.info("Paper Collection Scheduler initialized")
+
+    # Start scheduler (collect papers immediately on startup)
+    log.info("Starting Paper Collection Scheduler...")
+    await scheduler.start(run_immediately=True)
+    log.info("Paper Collection Scheduler started")
+
+    # 6. Create and start Slack App
     log.info("Creating Slack App...")
     slack_app = create_slack_app(
         recommendation_engine=engine,
@@ -87,6 +102,11 @@ async def lifespan(app: FastAPI) -> Any:
 
     # Shutdown
     log.info("Shutting down AIE Insight Bot...")
+
+    # Stop Paper Collection Scheduler
+    log.info("Stopping Paper Collection Scheduler...")
+    await scheduler.stop()
+    log.info("Paper Collection Scheduler stopped")
 
     # Stop Slack Socket Mode handler
     log.info("Stopping Slack Socket Mode handler...")

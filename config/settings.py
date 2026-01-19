@@ -69,11 +69,16 @@ class Settings(BaseSettings):
     )
 
     # Paper Collection Configuration
-    papers_fetch_limit: int = Field(
+    paper_collection_limit: int = Field(
         default=30,
         gt=0,
         le=100,
-        description="Number of papers to fetch from API",
+        description="Number of papers to fetch from API per collection",
+    )
+    collection_interval_hours: float = Field(
+        default=24.0,
+        gt=0,
+        description="Interval between paper collections in hours",
     )
     papers_fetch_schedule: str = Field(
         default="0 9 * * 1",
