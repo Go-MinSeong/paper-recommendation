@@ -221,8 +221,6 @@ async def _process_insight_request(
         storage: Interest storage instance
         settings: Application settings
     """
-    loading_msg = None
-
     try:
         # Check if user has set interest
         user_interest = await storage.get(user_id)
@@ -240,8 +238,8 @@ async def _process_insight_request(
             )
             return
 
-        # Show loading message
-        loading_msg = await client.chat_postEphemeral(
+        # Show loading message (ephemeral messages cannot be deleted, so just inform user)
+        await client.chat_postEphemeral(
             channel=channel_id,
             user=user_id,
             text="🔍 논문을 검색하고 요약하는 중입니다... 잠시만 기다려주세요.",
@@ -289,13 +287,6 @@ async def _process_insight_request(
             text=f"📚 {user_interest.interest}에 대한 추천 논문 {len(recommendations)}건",
         )
 
-        # Delete loading message
-        if loading_msg:
-            await client.chat_delete(
-                channel=channel_id,
-                ts=loading_msg["ts"],
-            )
-
         # Send success message to user
         await client.chat_postEphemeral(
             channel=channel_id,
@@ -304,16 +295,7 @@ async def _process_insight_request(
         )
 
     except Exception as e:
-        # Delete loading message if exists
-        if loading_msg:
-            try:
-                await client.chat_delete(
-                    channel=channel_id,
-                    ts=loading_msg["ts"],
-                )
-            except Exception:
-                pass  # Ignore deletion errors
-
+        log.exception(f"Error processing insight request for user {user_id}")
         error_msg = handle_command_error(e, "/insight")
         await client.chat_postEphemeral(
             channel=channel_id,
