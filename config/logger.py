@@ -50,7 +50,7 @@ def setup_logger() -> Any:
         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
         level=settings.log_level,
         rotation="10 MB",
-        retention="10 files",
+        retention=10,  # Keep 10 log files
         compression="zip",
         enqueue=True,  # Thread-safe logging
     )
@@ -61,7 +61,7 @@ def setup_logger() -> Any:
         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}\n{exception}",
         level="ERROR",
         rotation="10 MB",
-        retention="30 files",
+        retention=30,  # Keep 30 error log files
         compression="zip",
         enqueue=True,
         backtrace=True,

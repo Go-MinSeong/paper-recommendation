@@ -10,13 +10,13 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy dependency files
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 
 # Install uv for faster dependency management
 RUN pip install --no-cache-dir uv
 
-# Install Python dependencies
-RUN uv pip install --system -e .
+# Install Python dependencies (non-editable for production)
+RUN uv pip install --system .
 
 # Copy application code
 COPY config/ ./config/
