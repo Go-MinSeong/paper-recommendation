@@ -1,7 +1,8 @@
-version: '3.8'
+# Development Docker Compose
+# Usage: docker compose -f docker-compose.dev.yml up --build
 
 services:
-  # Milvus Standalone with dependencies
+  # Milvus dependencies
   etcd:
     container_name: milvus-etcd
     image: quay.io/coreos/etcd:v3.5.5
@@ -67,7 +68,7 @@ services:
     networks:
       - milvus
 
-  # Attu - Milvus GUI Management Tool
+  # Attu - Milvus GUI Management Tool (Development)
   attu:
     container_name: milvus-attu
     image: zilliz/attu:v2.4
@@ -82,19 +83,31 @@ services:
       - milvus
     restart: unless-stopped
 
-  # Main Application
+  # Main Application - Development
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: aie-insight-bot
+      target: development
+    container_name: aie-insight-bot-dev
     env_file:
       - .env
+    environment:
+      - ENV=development
+      - DEBUG=true
+      - PYTHONDONTWRITEBYTECODE=1
     volumes:
-      - .:/app
+      # Mount source code for hot reload
+      - ./config:/app/config
+      - ./mcp_servers:/app/mcp_servers
+      - ./src:/app/src
+      - ./tests:/app/tests
+      - ./scripts:/app/scripts
+      - ./main.py:/app/main.py
+      - ./pyproject.toml:/app/pyproject.toml
+      # Persistent data
       - ./data:/app/data
       - ./logs:/app/logs
-      - ./src:/app/src
     ports:
       - "8000:8000"
     depends_on:
@@ -104,6 +117,9 @@ services:
       - milvus
     command: python main.py
     restart: unless-stopped
+    # Enable stdin for debugging
+    stdin_open: true
+    tty: true
 
 networks:
   milvus:
