@@ -67,6 +67,8 @@ class VectorStoreService:
     async def store_papers(self, papers: PaperCollection) -> list[str]:
         """Store papers with their embeddings in Milvus.
 
+        Skips papers that already exist in the collection (based on paper_id).
+
         Args:
             papers: Collection of papers to store
 
@@ -87,18 +89,35 @@ class VectorStoreService:
             return []
 
         try:
-            log.info(f"Storing {len(papers)} papers")
+            log.info(f"Received {len(papers)} papers for storage")
 
-            # Generate embeddings for all papers
-            texts = [paper.to_text() for paper in papers]
+            # Get existing paper IDs to avoid duplicates
+            existing_ids = await self.milvus.get_existing_paper_ids()
+            log.debug(f"[Service] Found {len(existing_ids)} existing papers in collection")
+
+            # Filter out papers that already exist
+            new_papers = [p for p in papers if p.id not in existing_ids]
+            skipped_count = len(papers) - len(new_papers)
+
+            if skipped_count > 0:
+                log.info(f"Skipped {skipped_count} duplicate papers")
+
+            if not new_papers:
+                log.info("No new papers to store (all duplicates)")
+                return []
+
+            log.info(f"Storing {len(new_papers)} new papers")
+
+            # Generate embeddings for new papers only
+            texts = [paper.to_text() for paper in new_papers]
             embeddings = await self.embeddings.embed_texts(texts)
 
             # Prepare data for insertion
-            paper_ids = [paper.id for paper in papers]
-            titles = [paper.title for paper in papers]
-            abstracts = [paper.abstract for paper in papers]
-            urls = [str(paper.url) for paper in papers]
-            upvotes = [paper.upvotes for paper in papers]
+            paper_ids = [paper.id for paper in new_papers]
+            titles = [paper.title for paper in new_papers]
+            abstracts = [paper.abstract for paper in new_papers]
+            urls = [str(paper.url) for paper in new_papers]
+            upvotes = [paper.upvotes for paper in new_papers]
 
             # Insert into Milvus
             inserted_ids = await self.milvus.insert(
@@ -110,7 +129,7 @@ class VectorStoreService:
                 upvotes=upvotes,
             )
 
-            log.info(f"Successfully stored {len(inserted_ids)} papers")
+            log.info(f"Successfully stored {len(inserted_ids)} new papers")
 
             return inserted_ids
 

@@ -40,8 +40,11 @@ async def lifespan(app: FastAPI) -> Any:
     from src.recommender.summarizer import PaperSummarizer
     from src.recommender.engine import RecommendationEngine
     from mcp_servers.interest_manager.storage import InterestStorage
+    from mcp_servers.recommendation_history.storage import RecommendationHistoryStorage
     from src.slack.app import create_slack_app, start_socket_mode
     from src.scheduler import PaperCollectionScheduler
+    from src.scheduler.recommendation import RecommendationScheduler
+    from slack_sdk.web.async_client import AsyncWebClient
 
     # 1. Initialize Vector Store
     log.info("Initializing Vector Store...")
@@ -54,22 +57,28 @@ async def lifespan(app: FastAPI) -> Any:
     summarizer = PaperSummarizer()
     log.info("Paper Summarizer initialized")
 
-    # 3. Initialize Recommendation Engine
+    # 3. Initialize Interest Storage
+    log.info("Initializing Interest Storage...")
+    storage = InterestStorage()
+    log.info("Interest Storage initialized")
+
+    # 4. Initialize Recommendation History Storage
+    log.info("Initializing Recommendation History Storage...")
+    recommendation_history = RecommendationHistoryStorage()
+    log.info("Recommendation History Storage initialized")
+
+    # 5. Initialize Recommendation Engine
     log.info("Initializing Recommendation Engine...")
     engine = RecommendationEngine(
         vector_store=vector_store,
         summarizer=summarizer,
+        recommendation_history=recommendation_history,
         top_k=settings.top_k_recommendations,
         min_score=settings.min_similarity_score,
     )
     log.info("Recommendation Engine initialized")
 
-    # 4. Initialize Interest Storage
-    log.info("Initializing Interest Storage...")
-    storage = InterestStorage()
-    log.info("Interest Storage initialized")
-
-    # 5. Initialize and Start Paper Collection Scheduler
+    # 6. Initialize and Start Paper Collection Scheduler
     log.info("Initializing Paper Collection Scheduler...")
     scheduler = PaperCollectionScheduler(
         vector_store=vector_store,
@@ -83,7 +92,7 @@ async def lifespan(app: FastAPI) -> Any:
     await scheduler.start(run_immediately=True)
     log.info("Paper Collection Scheduler started")
 
-    # 6. Create and start Slack App
+    # 7. Create and start Slack App
     log.info("Creating Slack App...")
     slack_app = create_slack_app(
         recommendation_engine=engine,
@@ -96,12 +105,35 @@ async def lifespan(app: FastAPI) -> Any:
     handler_task = asyncio.create_task(start_socket_mode(slack_app))
     log.info("Slack Socket Mode handler started")
 
+    # 8. Initialize and Start Recommendation Scheduler (if enabled)
+    recommendation_scheduler = None
+    if settings.auto_recommend_enabled:
+        log.info("Initializing Recommendation Scheduler...")
+        slack_client = AsyncWebClient(token=settings.slack_bot_token)
+        recommendation_scheduler = RecommendationScheduler(
+            engine=engine,
+            interest_storage=storage,
+            slack_client=slack_client,
+            interval_hours=settings.auto_recommend_interval_hours,
+        )
+        log.info("Starting Recommendation Scheduler...")
+        await recommendation_scheduler.start(run_immediately=False)
+        log.info("Recommendation Scheduler started")
+    else:
+        log.info("Recommendation Scheduler is disabled (AUTO_RECOMMEND_ENABLED=false)")
+
     log.info("AIE Insight Bot started successfully")
 
     yield
 
     # Shutdown
     log.info("Shutting down AIE Insight Bot...")
+
+    # Stop Recommendation Scheduler (if running)
+    if recommendation_scheduler and recommendation_scheduler.is_running:
+        log.info("Stopping Recommendation Scheduler...")
+        await recommendation_scheduler.stop()
+        log.info("Recommendation Scheduler stopped")
 
     # Stop Paper Collection Scheduler
     log.info("Stopping Paper Collection Scheduler...")
@@ -149,13 +181,22 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Add CORS middleware
+    # Add CORS middleware with configurable origins
+    cors_origins = settings.cors_origins_list
+
+    # Warn if using wildcard in production
+    if settings.is_production() and "*" in cors_origins:
+        log.warning(
+            "CORS is configured with wildcard '*' in production. "
+            "Consider setting CORS_ALLOWED_ORIGINS to specific domains."
+        )
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=cors_origins,
+        allow_credentials=True if "*" not in cors_origins else False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization"],
     )
 
     return app

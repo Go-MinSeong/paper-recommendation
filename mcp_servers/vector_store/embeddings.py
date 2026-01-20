@@ -9,6 +9,7 @@ from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from config.logger import log
+from config.rate_limiter import get_openai_rate_limiter
 from config.settings import get_settings
 
 
@@ -85,11 +86,14 @@ class OpenAIEmbeddings:
         try:
             log.debug(f"Generating embedding for text (length: {len(text)})")
 
-            response = await self._client.embeddings.create(
-                model=self.model,
-                input=text,
-                dimensions=self.dimension,
-            )
+            # Apply rate limiting
+            rate_limiter = get_openai_rate_limiter()
+            async with rate_limiter:
+                response = await self._client.embeddings.create(
+                    model=self.model,
+                    input=text,
+                    dimensions=self.dimension,
+                )
 
             embedding = response.data[0].embedding
 
@@ -138,11 +142,14 @@ class OpenAIEmbeddings:
         try:
             log.info(f"Generating embeddings for {len(valid_texts)} texts")
 
-            response = await self._client.embeddings.create(
-                model=self.model,
-                input=valid_texts,
-                dimensions=self.dimension,
-            )
+            # Apply rate limiting
+            rate_limiter = get_openai_rate_limiter()
+            async with rate_limiter:
+                response = await self._client.embeddings.create(
+                    model=self.model,
+                    input=valid_texts,
+                    dimensions=self.dimension,
+                )
 
             embeddings = [item.embedding for item in response.data]
 

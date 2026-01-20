@@ -1,12 +1,18 @@
-"""Slack command handlers for /set_interest and /insight.
+"""Slack command handlers.
 
 This module provides command handlers with dependency injection pattern.
 Handlers acknowledge commands within 3 seconds and process them asynchronously.
+
+Available commands:
+- /set_interest: Register or update user interest
+- /my_interest: View current interest
+- /clear_interest: Remove interest
+- /insight: Get personalized recommendations
+- /history: View recommendation history
 """
 
 import asyncio
 from typing import Callable, Any
-from datetime import datetime
 
 from slack_bolt.async_app import AsyncAck, AsyncRespond
 from slack_sdk.web.async_client import AsyncWebClient
@@ -15,7 +21,7 @@ from config.logger import log
 from config.settings import Settings
 from src.recommender.engine import RecommendationEngine
 from mcp_servers.interest_manager.storage import InterestStorage
-from mcp_servers.interest_manager.models import UserInterest
+from mcp_servers.recommendation_history.storage import RecommendationHistoryStorage
 from src.slack.handlers.errors import handle_command_error, format_validation_error
 from src.slack.formatters.blocks import (
     format_recommendations_message,
@@ -302,3 +308,195 @@ async def _process_insight_request(
             user=user_id,
             text=error_msg,
         )
+
+
+def create_my_interest_handler(
+    interest_storage: InterestStorage,
+) -> Callable:
+    """Create /my_interest command handler.
+
+    Args:
+        interest_storage: Storage for user interests
+
+    Returns:
+        Async command handler function
+    """
+
+    async def handle_my_interest(
+        ack: AsyncAck,
+        command: dict[str, Any],
+        client: AsyncWebClient,
+        respond: AsyncRespond,
+    ) -> None:
+        """Handle /my_interest command to view current interest."""
+        await ack()
+
+        user_id = command["user_id"]
+        channel_id = command["channel_id"]
+
+        log.info(f"Received /my_interest from user {user_id}")
+
+        try:
+            user_interest = await interest_storage.get(user_id)
+
+            if not user_interest:
+                await client.chat_postEphemeral(
+                    channel=channel_id,
+                    user=user_id,
+                    text=(
+                        "📝 등록된 관심사가 없습니다.\n\n"
+                        "`/set_interest <관심사>`로 등록해주세요.\n"
+                        "예시: `/set_interest VLM을 이용한 객체 검출`"
+                    ),
+                )
+                return
+
+            await client.chat_postEphemeral(
+                channel=channel_id,
+                user=user_id,
+                text=(
+                    f"📌 *등록된 관심사*\n\n"
+                    f"> {user_interest.interest}\n\n"
+                    f"등록일: {user_interest.created_at.strftime('%Y-%m-%d %H:%M')}\n"
+                    f"수정일: {user_interest.updated_at.strftime('%Y-%m-%d %H:%M')}\n\n"
+                    f"_관심사를 변경하려면 `/set_interest <새 관심사>`를 사용하세요._"
+                ),
+            )
+
+        except Exception as e:
+            error_msg = handle_command_error(e, "/my_interest")
+            await client.chat_postEphemeral(
+                channel=channel_id,
+                user=user_id,
+                text=error_msg,
+            )
+
+    return handle_my_interest
+
+
+def create_clear_interest_handler(
+    interest_storage: InterestStorage,
+) -> Callable:
+    """Create /clear_interest command handler.
+
+    Args:
+        interest_storage: Storage for user interests
+
+    Returns:
+        Async command handler function
+    """
+
+    async def handle_clear_interest(
+        ack: AsyncAck,
+        command: dict[str, Any],
+        client: AsyncWebClient,
+        respond: AsyncRespond,
+    ) -> None:
+        """Handle /clear_interest command to remove user interest."""
+        await ack()
+
+        user_id = command["user_id"]
+        channel_id = command["channel_id"]
+
+        log.info(f"Received /clear_interest from user {user_id}")
+
+        try:
+            removed = await interest_storage.remove(user_id)
+
+            if removed:
+                await client.chat_postEphemeral(
+                    channel=channel_id,
+                    user=user_id,
+                    text="✅ 관심사가 삭제되었습니다.\n\n새로운 관심사를 등록하려면 `/set_interest <관심사>`를 사용하세요.",
+                )
+            else:
+                await client.chat_postEphemeral(
+                    channel=channel_id,
+                    user=user_id,
+                    text="⚠️ 등록된 관심사가 없습니다.",
+                )
+
+        except Exception as e:
+            error_msg = handle_command_error(e, "/clear_interest")
+            await client.chat_postEphemeral(
+                channel=channel_id,
+                user=user_id,
+                text=error_msg,
+            )
+
+    return handle_clear_interest
+
+
+def create_history_handler(
+    recommendation_history: RecommendationHistoryStorage,
+) -> Callable:
+    """Create /history command handler.
+
+    Args:
+        recommendation_history: Storage for recommendation history
+
+    Returns:
+        Async command handler function
+    """
+
+    async def handle_history(
+        ack: AsyncAck,
+        command: dict[str, Any],
+        client: AsyncWebClient,
+        respond: AsyncRespond,
+    ) -> None:
+        """Handle /history command to view recommendation history."""
+        await ack()
+
+        user_id = command["user_id"]
+        channel_id = command["channel_id"]
+
+        log.info(f"Received /history from user {user_id}")
+
+        try:
+            history = await recommendation_history.load()
+
+            # Filter history for this user
+            user_recommendations = [
+                detail for detail in history.details
+                if detail.recommended_to_user_id == user_id
+            ]
+
+            if not user_recommendations:
+                await client.chat_postEphemeral(
+                    channel=channel_id,
+                    user=user_id,
+                    text=(
+                        "📚 추천 이력이 없습니다.\n\n"
+                        "`/insight` 명령어로 논문 추천을 받아보세요!"
+                    ),
+                )
+                return
+
+            # Format history (최근 10개만)
+            recent = sorted(
+                user_recommendations,
+                key=lambda x: x.recommended_at,
+                reverse=True
+            )[:10]
+
+            history_text = "📚 *최근 추천받은 논문*\n\n"
+            for i, rec in enumerate(recent, 1):
+                date_str = rec.recommended_at.strftime("%m/%d")
+                history_text += f"{i}. [{date_str}] {rec.title[:60]}{'...' if len(rec.title) > 60 else ''}\n"
+
+            history_text += f"\n_총 {len(user_recommendations)}건의 논문을 추천받았습니다._"
+
+            await client.chat_postEphemeral(
+                channel=channel_id,
+                user=user_id,
+                text=history_text,
+            )
+
+        except Exception as e:
+            error_msg = handle_command_error(e, "/history")
+            await client.chat_postEphemeral(
+                channel=channel_id,
+                user=user_id,
+                text=error_msg,
+            )

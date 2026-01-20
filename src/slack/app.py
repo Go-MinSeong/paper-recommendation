@@ -14,6 +14,7 @@ from config.settings import get_settings
 from config.logger import log
 from src.recommender.engine import RecommendationEngine
 from mcp_servers.interest_manager.storage import InterestStorage
+from mcp_servers.recommendation_history.storage import RecommendationHistoryStorage
 
 
 class SlackAppDependencies:
@@ -22,6 +23,7 @@ class SlackAppDependencies:
     Attributes:
         recommendation_engine: Engine for generating paper recommendations
         interest_storage: Storage for user interests
+        recommendation_history: Storage for recommendation history
         settings: Application settings
     """
 
@@ -29,33 +31,38 @@ class SlackAppDependencies:
         self,
         recommendation_engine: RecommendationEngine,
         interest_storage: InterestStorage,
+        recommendation_history: RecommendationHistoryStorage,
     ):
         """Initialize dependencies container.
 
         Args:
             recommendation_engine: Engine for generating paper recommendations
             interest_storage: Storage for user interests
+            recommendation_history: Storage for recommendation history
         """
         self.recommendation_engine = recommendation_engine
         self.interest_storage = interest_storage
+        self.recommendation_history = recommendation_history
         self.settings = get_settings()
 
 
 def create_slack_app(
     recommendation_engine: RecommendationEngine,
     interest_storage: InterestStorage,
+    recommendation_history: RecommendationHistoryStorage | None = None,
 ) -> AsyncApp:
     """Create and configure Slack Bolt AsyncApp with command handlers.
 
     Args:
         recommendation_engine: Engine for generating paper recommendations
         interest_storage: Storage for user interests
+        recommendation_history: Storage for recommendation history (optional, uses engine's if not provided)
 
     Returns:
         Configured AsyncApp instance with registered handlers
 
     Example:
-        >>> engine = RecommendationEngine(vector_store, summarizer)
+        >>> engine = RecommendationEngine(vector_store, summarizer, history)
         >>> storage = InterestStorage()
         >>> app = create_slack_app(engine, storage)
     """
@@ -68,10 +75,15 @@ def create_slack_app(
         # But we keep it for future HTTP Mode support
     )
 
+    # Use recommendation_history from engine if not provided
+    if recommendation_history is None:
+        recommendation_history = recommendation_engine.recommendation_history
+
     # Create dependencies container
     deps = SlackAppDependencies(
         recommendation_engine=recommendation_engine,
         interest_storage=interest_storage,
+        recommendation_history=recommendation_history,
     )
 
     # Register command handlers
@@ -91,11 +103,22 @@ def _register_command_handlers(app: AsyncApp, deps: SlackAppDependencies) -> Non
     from src.slack.handlers.commands import (
         create_set_interest_handler,
         create_insight_handler,
+        create_my_interest_handler,
+        create_clear_interest_handler,
+        create_history_handler,
     )
 
     # Register /set_interest command
     set_interest_handler = create_set_interest_handler(deps.interest_storage)
     app.command("/set_interest")(set_interest_handler)
+
+    # Register /my_interest command
+    my_interest_handler = create_my_interest_handler(deps.interest_storage)
+    app.command("/my_interest")(my_interest_handler)
+
+    # Register /clear_interest command
+    clear_interest_handler = create_clear_interest_handler(deps.interest_storage)
+    app.command("/clear_interest")(clear_interest_handler)
 
     # Register /insight command
     insight_handler = create_insight_handler(
@@ -105,7 +128,14 @@ def _register_command_handlers(app: AsyncApp, deps: SlackAppDependencies) -> Non
     )
     app.command("/insight")(insight_handler)
 
-    log.info("Command handlers registered: /set_interest, /insight")
+    # Register /history command
+    history_handler = create_history_handler(deps.recommendation_history)
+    app.command("/history")(history_handler)
+
+    log.info(
+        "Command handlers registered: "
+        "/set_interest, /my_interest, /clear_interest, /insight, /history"
+    )
 
 
 async def start_socket_mode(app: AsyncApp) -> None:

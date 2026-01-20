@@ -389,6 +389,45 @@ class MilvusClient:
             log.error(error_msg)
             raise MilvusError(error_msg) from e
 
+    async def get_existing_paper_ids(self) -> set[str]:
+        """Get all existing paper IDs in the collection.
+
+        Returns:
+            set[str]: Set of paper IDs currently stored
+
+        Raises:
+            MilvusError: If query fails
+
+        Examples:
+            >>> client = MilvusClient()
+            >>> await client.connect()
+            >>> existing_ids = await client.get_existing_paper_ids()
+            >>> print(f"Found {len(existing_ids)} papers")
+        """
+        if not self._collection:
+            raise MilvusError("Collection not initialized. Call connect() first.")
+
+        try:
+            log.debug("Querying existing paper IDs from Milvus")
+
+            # Query all paper_ids from the collection
+            results = self._collection.query(
+                expr="",
+                output_fields=["paper_id"],
+                limit=16384,  # Milvus default max limit
+            )
+
+            paper_ids = {item["paper_id"] for item in results}
+
+            log.info(f"Found {len(paper_ids)} existing papers in collection")
+
+            return paper_ids
+
+        except Exception as e:
+            error_msg = f"Failed to get existing paper IDs: {str(e)}"
+            log.error(error_msg)
+            raise MilvusError(error_msg) from e
+
     async def delete_collection(self) -> None:
         """Delete the collection.
 

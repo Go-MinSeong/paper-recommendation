@@ -9,6 +9,7 @@ from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from config.logger import log
+from config.rate_limiter import get_openai_rate_limiter
 from config.settings import get_settings
 
 
@@ -101,18 +102,21 @@ class PaperSummarizer:
 
 요약:"""
 
-            response = await self._client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "당신은 AI/ML 논문을 명확하고 간결하게 요약하는 전문가입니다.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-            )
+            # Apply rate limiting
+            rate_limiter = get_openai_rate_limiter()
+            async with rate_limiter:
+                response = await self._client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "당신은 AI/ML 논문을 명확하고 간결하게 요약하는 전문가입니다.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                )
 
             summary = response.choices[0].message.content.strip()
 
@@ -174,18 +178,21 @@ class PaperSummarizer:
 
 맞춤 요약:"""
 
-            response = await self._client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "당신은 사용자의 연구 관심사에 맞춰 논문을 분석하고 설명하는 전문가입니다.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-            )
+            # Apply rate limiting
+            rate_limiter = get_openai_rate_limiter()
+            async with rate_limiter:
+                response = await self._client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "당신은 사용자의 연구 관심사에 맞춰 논문을 분석하고 설명하는 전문가입니다.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                )
 
             summary = response.choices[0].message.content.strip()
 

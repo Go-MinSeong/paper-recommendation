@@ -3,13 +3,12 @@
 This module provides the core recommendation logic combining vector search and summarization.
 """
 
-from typing import Any
-
 from pydantic import BaseModel, Field
 
 from config.logger import log
 from config.settings import get_settings
 from mcp_servers.interest_manager.models import UserInterest
+from mcp_servers.recommendation_history.storage import RecommendationHistoryStorage
 from mcp_servers.vector_store.service import VectorStoreService
 from src.recommender.summarizer import PaperSummarizer
 
@@ -43,12 +42,15 @@ class RecommendationEngine:
 
     This engine:
     1. Searches for similar papers based on user interest
-    2. Generates core and contextualized summaries
-    3. Returns ranked recommendations
+    2. Filters out previously recommended papers
+    3. Generates core and contextualized summaries
+    4. Records recommendations to history
+    5. Returns ranked recommendations
 
     Attributes:
         vector_store: Vector store service for similarity search
         summarizer: Paper summarizer for generating summaries
+        recommendation_history: Storage for tracking recommended papers
         top_k: Number of recommendations to generate
         min_score: Minimum similarity score threshold
     """
@@ -57,6 +59,7 @@ class RecommendationEngine:
         self,
         vector_store: VectorStoreService,
         summarizer: PaperSummarizer,
+        recommendation_history: RecommendationHistoryStorage,
         top_k: int | None = None,
         min_score: float | None = None,
     ) -> None:
@@ -65,19 +68,22 @@ class RecommendationEngine:
         Args:
             vector_store: Vector store service instance
             summarizer: Paper summarizer instance
+            recommendation_history: Storage for tracking recommended papers
             top_k: Number of recommendations (uses settings if not provided)
             min_score: Min similarity score (uses settings if not provided)
 
         Examples:
             >>> vector_store = VectorStoreService()
             >>> summarizer = PaperSummarizer()
-            >>> engine = RecommendationEngine(vector_store, summarizer)
+            >>> history = RecommendationHistoryStorage()
+            >>> engine = RecommendationEngine(vector_store, summarizer, history)
             >>> recs = await engine.recommend(user_interest)
         """
         settings = get_settings()
 
         self.vector_store = vector_store
         self.summarizer = summarizer
+        self.recommendation_history = recommendation_history
         self.top_k = top_k or settings.top_k_recommendations
         self.min_score = min_score or settings.min_similarity_score
 
@@ -87,6 +93,8 @@ class RecommendationEngine:
 
     async def recommend(self, user_interest: UserInterest) -> list[Recommendation]:
         """Generate personalized paper recommendations.
+
+        Filters out papers that have been previously recommended to any team member.
 
         Args:
             user_interest: User interest object
@@ -98,7 +106,7 @@ class RecommendationEngine:
             Exception: If recommendation generation fails
 
         Examples:
-            >>> engine = RecommendationEngine(vector_store, summarizer)
+            >>> engine = RecommendationEngine(vector_store, summarizer, history)
             >>> interest = UserInterest(user_id="U123", interest="VLM research")
             >>> recommendations = await engine.recommend(interest)
             >>> for rec in recommendations:
@@ -112,11 +120,19 @@ class RecommendationEngine:
             log.debug(f"[Engine] Full interest text: '{user_interest.interest}'")
             log.debug(f"[Engine] Config: top_k={self.top_k}, min_score={self.min_score}")
 
-            # Search for similar papers
-            log.debug("[Engine] Step 1: Searching for similar papers in vector store...")
+            # Step 1: Load previously recommended paper IDs
+            log.debug("[Engine] Step 1: Loading recommendation history...")
+            recommended_ids = await self.recommendation_history.get_recommended_ids()
+            log.debug(f"[Engine] Found {len(recommended_ids)} previously recommended papers")
+
+            # Step 2: Search for similar papers (fetch more to account for filtering)
+            search_limit = self.top_k + len(recommended_ids) if recommended_ids else self.top_k
+            search_limit = min(search_limit, self.top_k * 3)  # Cap at 3x to avoid excessive search
+
+            log.debug(f"[Engine] Step 2: Searching for similar papers (limit={search_limit})...")
             similar_papers = await self.vector_store.search_similar_papers(
                 query_text=user_interest.interest,
-                top_k=self.top_k,
+                top_k=search_limit,
                 min_score=self.min_score,
             )
 
@@ -132,14 +148,29 @@ class RecommendationEngine:
                 )
                 return []
 
-            # Generate summaries for each paper
-            log.debug("[Engine] Step 2: Generating summaries for matched papers...")
+            # Step 3: Filter out previously recommended papers
+            log.debug("[Engine] Step 3: Filtering out previously recommended papers...")
+            new_papers = [p for p in similar_papers if p["paper_id"] not in recommended_ids]
+            filtered_count = len(similar_papers) - len(new_papers)
+
+            if filtered_count > 0:
+                log.info(f"Filtered out {filtered_count} previously recommended papers")
+
+            if not new_papers:
+                log.warning("All matching papers have been previously recommended")
+                return []
+
+            # Limit to top_k after filtering
+            new_papers = new_papers[: self.top_k]
+
+            # Step 4: Generate summaries for each paper
+            log.debug(f"[Engine] Step 4: Generating summaries for {len(new_papers)} papers...")
             recommendations: list[Recommendation] = []
 
-            for idx, paper in enumerate(similar_papers):
+            for idx, paper in enumerate(new_papers):
                 try:
                     log.debug(
-                        f"[Engine] Processing paper {idx+1}/{len(similar_papers)}: "
+                        f"[Engine] Processing paper {idx+1}/{len(new_papers)}: "
                         f"'{paper['title'][:50]}...' (score={paper['score']:.4f})"
                     )
 
@@ -182,6 +213,15 @@ class RecommendationEngine:
                 except Exception as e:
                     log.error(f"Failed to generate summaries for paper {idx+1}: {e}")
                     continue
+
+            # Step 5: Record recommendations to history
+            log.debug("[Engine] Step 5: Recording recommendations to history...")
+            for rec in recommendations:
+                await self.recommendation_history.add_recommendation(
+                    paper_id=rec.paper_id,
+                    title=rec.title,
+                    user_id=user_interest.user_id,
+                )
 
             log.info(f"Generated {len(recommendations)} recommendations")
             log.debug(f"[Engine] Recommendation generation complete. Returning {len(recommendations)} results.")

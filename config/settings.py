@@ -68,6 +68,14 @@ class Settings(BaseSettings):
         description="Maximum tokens for LLM generation",
     )
 
+    # Rate Limiting Configuration
+    openai_max_concurrent_requests: int = Field(
+        default=5,
+        gt=0,
+        le=20,
+        description="Maximum concurrent OpenAI API requests",
+    )
+
     # Paper Collection Configuration
     paper_collection_limit: int = Field(
         default=30,
@@ -98,6 +106,15 @@ class Settings(BaseSettings):
         le=1.0,
         description="Minimum cosine similarity score for recommendations",
     )
+    auto_recommend_enabled: bool = Field(
+        default=False,
+        description="Enable automatic scheduled recommendations",
+    )
+    auto_recommend_interval_hours: float = Field(
+        default=24.0,
+        gt=0,
+        description="Interval between automatic recommendations in hours",
+    )
 
     # Application Configuration
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
@@ -107,6 +124,12 @@ class Settings(BaseSettings):
     environment: Literal["development", "staging", "production"] = Field(
         default="development",
         description="Application environment",
+    )
+
+    # CORS Configuration
+    cors_allowed_origins: str = Field(
+        default="*",
+        description="Comma-separated list of allowed CORS origins (use '*' for development only)",
     )
 
     @field_validator("slack_bot_token")
@@ -172,6 +195,22 @@ class Settings(BaseSettings):
             True
         """
         return self.environment == "development"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Get CORS allowed origins as a list.
+
+        Returns:
+            list[str]: List of allowed origins
+
+        Examples:
+            >>> settings = Settings(cors_allowed_origins="https://example.com,https://app.example.com")
+            >>> settings.cors_origins_list
+            ['https://example.com', 'https://app.example.com']
+        """
+        if self.cors_allowed_origins == "*":
+            return ["*"]
+        return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
 
 
 @lru_cache
