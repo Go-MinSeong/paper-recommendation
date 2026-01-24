@@ -7,10 +7,180 @@ Reference: https://api.slack.com/block-kit
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 from mcp_servers.interest_manager.models import UserInterest
 from src.recommender.engine import Recommendation
+
+
+def format_single_paper_message(
+    rec: Recommendation,
+    user_interest: UserInterest,
+    paper_index: int,
+    total_papers: int,
+) -> list[dict[str, Any]]:
+    """Format a single paper recommendation as Slack Block Kit message.
+
+    Each paper is posted as an individual message to enable per-paper reactions.
+
+    Args:
+        rec: Single paper recommendation
+        user_interest: User's interest with metadata
+        paper_index: 1-based index of this paper
+        total_papers: Total number of papers in this recommendation batch
+
+    Returns:
+        List of Block Kit blocks for a single paper
+
+    Example:
+        >>> rec = Recommendation(...)
+        >>> interest = UserInterest(user_id="U123", interest="VLM 연구")
+        >>> blocks = format_single_paper_message(rec, interest, 1, 3)
+    """
+    blocks: list[dict[str, Any]] = []
+
+    # Build metadata line with publication date and citation count
+    metadata_parts = []
+
+    if rec.published_at:
+        date_str = rec.published_at.strftime("%Y-%m-%d")
+        metadata_parts.append(f"📅 {date_str}")
+
+    if rec.citation_count is not None:
+        metadata_parts.append(f"📖 인용 {rec.citation_count}회")
+
+    metadata_line = " • ".join(metadata_parts) if metadata_parts else ""
+
+    # Header with paper title
+    blocks.append(
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"📄 {rec.title[:145]}{'...' if len(rec.title) > 145 else ''}",
+                "emoji": True,
+            },
+        }
+    )
+
+    # Context: metadata (date, citations, user info)
+    context_text = f"<@{user_interest.user_id}>님을 위한 추천 ({paper_index}/{total_papers})"
+    if metadata_line:
+        context_text = f"{metadata_line} • {context_text}"
+
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": context_text,
+                }
+            ],
+        }
+    )
+
+    blocks.append({"type": "divider"})
+
+    # Core summary
+    blocks.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*📝 핵심 요약*\n{rec.core_summary}",
+            },
+        }
+    )
+
+    # Contextualized summary
+    blocks.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*💡 맞춤 해석*\n{rec.contextualized_summary}",
+            },
+        }
+    )
+
+    # Action button
+    blocks.append(
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "📎 논문 읽기",
+                        "emoji": True,
+                    },
+                    "url": rec.url,
+                    "action_id": f"read_paper_{rec.paper_id}",
+                    "style": "primary",
+                }
+            ],
+        }
+    )
+
+    return blocks
+
+
+def format_recommendation_header_message(
+    user_interest: UserInterest,
+    total_papers: int,
+) -> list[dict[str, Any]]:
+    """Format header message for a recommendation batch.
+
+    This is posted as the first message, with individual papers as thread replies.
+
+    Args:
+        user_interest: User's interest with metadata
+        total_papers: Total number of papers being recommended
+
+    Returns:
+        List of Block Kit blocks for the header message
+    """
+    blocks: list[dict[str, Any]] = []
+
+    blocks.append(
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"📚 {user_interest.interest}",
+                "emoji": True,
+            },
+        }
+    )
+
+    blocks.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    f"<@{user_interest.user_id}>님을 위한 맞춤 논문 *{total_papers}*건을 추천합니다.\n\n"
+                    f"각 논문에 반응을 남겨주시면 추천 품질 개선에 도움이 됩니다! 👍❤️🔥"
+                ),
+            },
+        }
+    )
+
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"생성 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                }
+            ],
+        }
+    )
+
+    return blocks
 
 
 def format_recommendations_message(
@@ -18,6 +188,8 @@ def format_recommendations_message(
     recommendations: list[Recommendation],
 ) -> list[dict[str, Any]]:
     """Format personalized paper recommendations as Slack Block Kit message.
+
+    DEPRECATED: Use format_single_paper_message for individual paper posts.
 
     Args:
         user_interest: User's interest with metadata
@@ -63,18 +235,29 @@ def format_recommendations_message(
 
     # Each recommendation
     for idx, rec in enumerate(recommendations, 1):
+        # Build metadata line
+        metadata_parts = []
+
+        if rec.published_at:
+            date_str = rec.published_at.strftime("%Y-%m-%d")
+            metadata_parts.append(f"📅 {date_str}")
+
+        if rec.citation_count is not None:
+            metadata_parts.append(f"📖 인용 {rec.citation_count}회")
+
+        metadata_line = " • ".join(metadata_parts) if metadata_parts else ""
+
         # Paper title and metadata
-        similarity_pct = rec.similarity_score * 100
+        text_content = f"*{idx}. {rec.title}*\n\n_{rec.core_summary}_"
+        if metadata_line:
+            text_content += f"\n\n{metadata_line}"
+
         blocks.append(
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": (
-                        f"*{idx}. {rec.title}*\n\n"
-                        f"_{rec.core_summary}_\n\n"
-                        f"📊 유사도: {similarity_pct:.1f}% • 👍 {rec.upvotes} upvotes"
-                    ),
+                    "text": text_content,
                 },
             }
         )

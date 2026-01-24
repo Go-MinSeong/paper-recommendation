@@ -3,6 +3,9 @@
 This module provides the core recommendation logic combining vector search and summarization.
 """
 
+from datetime import datetime
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 from config.logger import log
@@ -10,6 +13,7 @@ from config.settings import get_settings
 from mcp_servers.interest_manager.models import UserInterest
 from mcp_servers.recommendation_history.storage import RecommendationHistoryStorage
 from mcp_servers.vector_store.service import VectorStoreService
+from mcp_servers.paper_collector.semantic_scholar_api import SemanticScholarClient
 from src.recommender.summarizer import PaperSummarizer
 
 
@@ -21,8 +25,8 @@ class Recommendation(BaseModel):
         title: Paper title
         abstract: Paper abstract
         url: Paper URL
-        upvotes: Number of upvotes
-        similarity_score: Cosine similarity score
+        published_at: Publication date
+        citation_count: Number of citations from Semantic Scholar
         core_summary: General summary
         contextualized_summary: Interest-based summary
     """
@@ -31,8 +35,8 @@ class Recommendation(BaseModel):
     title: str = Field(..., description="Paper title")
     abstract: str = Field(..., description="Paper abstract")
     url: str = Field(..., description="Paper URL")
-    upvotes: int = Field(..., description="Number of upvotes")
-    similarity_score: float = Field(..., description="Similarity score (0-1)")
+    published_at: Optional[datetime] = Field(default=None, description="Publication date")
+    citation_count: Optional[int] = Field(default=None, description="Citation count")
     core_summary: str = Field(..., description="Core summary")
     contextualized_summary: str = Field(..., description="Contextualized summary")
 
@@ -163,56 +167,82 @@ class RecommendationEngine:
             # Limit to top_k after filtering
             new_papers = new_papers[: self.top_k]
 
-            # Step 4: Generate summaries for each paper
+            # Step 4: Generate summaries and fetch metadata for each paper
             log.debug(f"[Engine] Step 4: Generating summaries for {len(new_papers)} papers...")
             recommendations: list[Recommendation] = []
 
-            for idx, paper in enumerate(new_papers):
-                try:
-                    log.debug(
-                        f"[Engine] Processing paper {idx+1}/{len(new_papers)}: "
-                        f"'{paper['title'][:50]}...' (score={paper['score']:.4f})"
-                    )
+            async with SemanticScholarClient() as ss_client:
+                for idx, paper in enumerate(new_papers):
+                    try:
+                        log.debug(
+                            f"[Engine] Processing paper {idx+1}/{len(new_papers)}: "
+                            f"'{paper['title'][:50]}...' (score={paper['score']:.4f})"
+                        )
 
-                    # Generate core summary
-                    log.debug(f"[Engine] Generating core summary for paper {idx+1}...")
-                    core_summary = await self.summarizer.generate_core_summary(
-                        title=paper["title"],
-                        abstract=paper["abstract"],
-                    )
+                        # Fetch citation count and publication date from Semantic Scholar
+                        log.debug(f"[Engine] Fetching metadata from Semantic Scholar for paper {idx+1}...")
+                        citation_count = None
+                        published_at = None
 
-                    # Generate contextualized summary
-                    log.debug(f"[Engine] Generating contextualized summary for paper {idx+1}...")
-                    contextualized_summary = (
-                        await self.summarizer.generate_contextualized_summary(
+                        try:
+                            ss_paper = await ss_client.get_paper_by_arxiv_id(paper["paper_id"])
+                            if not ss_paper:
+                                ss_paper = await ss_client.search_paper_by_title(paper["title"])
+
+                            if ss_paper:
+                                citation_count = ss_paper.get("citationCount")
+                                pub_date_str = ss_paper.get("publicationDate")
+                                if pub_date_str:
+                                    try:
+                                        published_at = datetime.fromisoformat(pub_date_str)
+                                    except ValueError:
+                                        pass
+                                log.debug(
+                                    f"[Engine] Semantic Scholar: citations={citation_count}, "
+                                    f"published={pub_date_str}"
+                                )
+                        except Exception as e:
+                            log.warning(f"Failed to fetch Semantic Scholar data: {e}")
+
+                        # Generate core summary
+                        log.debug(f"[Engine] Generating core summary for paper {idx+1}...")
+                        core_summary = await self.summarizer.generate_core_summary(
                             title=paper["title"],
                             abstract=paper["abstract"],
-                            user_interest=user_interest.interest,
                         )
-                    )
 
-                    # Create recommendation
-                    recommendation = Recommendation(
-                        paper_id=paper["paper_id"],
-                        title=paper["title"],
-                        abstract=paper["abstract"],
-                        url=paper["url"],
-                        upvotes=paper["upvotes"],
-                        similarity_score=paper["score"],
-                        core_summary=core_summary,
-                        contextualized_summary=contextualized_summary,
-                    )
+                        # Generate contextualized summary
+                        log.debug(f"[Engine] Generating contextualized summary for paper {idx+1}...")
+                        contextualized_summary = (
+                            await self.summarizer.generate_contextualized_summary(
+                                title=paper["title"],
+                                abstract=paper["abstract"],
+                                user_interest=user_interest.interest,
+                            )
+                        )
 
-                    recommendations.append(recommendation)
+                        # Create recommendation
+                        recommendation = Recommendation(
+                            paper_id=paper["paper_id"],
+                            title=paper["title"],
+                            abstract=paper["abstract"],
+                            url=paper["url"],
+                            published_at=published_at,
+                            citation_count=citation_count,
+                            core_summary=core_summary,
+                            contextualized_summary=contextualized_summary,
+                        )
 
-                    log.debug(
-                        f"[Engine] Successfully created recommendation for paper {idx+1}: "
-                        f"'{paper['title'][:50]}...'"
-                    )
+                        recommendations.append(recommendation)
 
-                except Exception as e:
-                    log.error(f"Failed to generate summaries for paper {idx+1}: {e}")
-                    continue
+                        log.debug(
+                            f"[Engine] Successfully created recommendation for paper {idx+1}: "
+                            f"'{paper['title'][:50]}...'"
+                        )
+
+                    except Exception as e:
+                        log.error(f"Failed to generate summaries for paper {idx+1}: {e}")
+                        continue
 
             # Step 5: Record recommendations to history
             log.debug("[Engine] Step 5: Recording recommendations to history...")
