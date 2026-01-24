@@ -9,10 +9,12 @@ Available commands:
 - /clear_interest: Remove interest
 - /insight: Get personalized recommendations
 - /history: View recommendation history
+- /auto_recommend: Configure automatic recommendations
 """
 
 import asyncio
-from typing import Callable, Any
+import re
+from typing import Callable, Any, Optional
 
 from slack_bolt.async_app import AsyncAck, AsyncRespond
 from slack_sdk.web.async_client import AsyncWebClient
@@ -22,10 +24,14 @@ from config.settings import Settings
 from src.recommender.engine import RecommendationEngine
 from mcp_servers.interest_manager.storage import InterestStorage
 from mcp_servers.recommendation_history.storage import RecommendationHistoryStorage
+from mcp_servers.auto_recommend.storage import AutoRecommendStorage
+from mcp_servers.auto_recommend.models import IntervalUnit
 from src.slack.handlers.errors import handle_command_error, format_validation_error
 from src.slack.formatters.blocks import (
     format_recommendations_message,
     format_interest_saved_message,
+    format_single_paper_message,
+    format_recommendation_header_message,
 )
 
 
@@ -281,23 +287,32 @@ async def _process_insight_request(
             },
         )
 
-        # Format and post message to channel
-        blocks = format_recommendations_message(
-            user_interest=user_interest,
-            recommendations=recommendations,
-        )
+        # Post each paper as an individual message for per-paper reactions
+        total_papers = len(recommendations)
 
-        await client.chat_postMessage(
-            channel=settings.slack_channel_id,  # Post to configured channel
-            blocks=blocks,
-            text=f"📚 {user_interest.interest}에 대한 추천 논문 {len(recommendations)}건",
-        )
+        for idx, rec in enumerate(recommendations, 1):
+            # Format individual paper message
+            blocks = format_single_paper_message(
+                rec=rec,
+                user_interest=user_interest,
+                paper_index=idx,
+                total_papers=total_papers,
+            )
+
+            # Post to channel
+            await client.chat_postMessage(
+                channel=settings.slack_channel_id,
+                blocks=blocks,
+                text=f"📄 {rec.title}",
+            )
+
+            log.debug(f"Posted paper {idx}/{total_papers}: {rec.title[:50]}...")
 
         # Send success message to user
         await client.chat_postEphemeral(
             channel=channel_id,
             user=user_id,
-            text=f"✅ 추천 논문 {len(recommendations)}건을 <#{settings.slack_channel_id}> 채널에 게시했습니다!",
+            text=f"✅ 추천 논문 {len(recommendations)}건을 <#{settings.slack_channel_id}> 채널에 개별 게시했습니다!",
         )
 
     except Exception as e:
@@ -500,3 +515,214 @@ def create_history_handler(
                 user=user_id,
                 text=error_msg,
             )
+
+    return handle_history
+
+
+def create_auto_recommend_handler(
+    auto_recommend_storage: AutoRecommendStorage,
+) -> Callable:
+    """Create /auto_recommend command handler.
+
+    Usage:
+        /auto_recommend on 1일 3개  - Enable: every 1 day, 3 papers
+        /auto_recommend on 2시간 5개 - Enable: every 2 hours, 5 papers
+        /auto_recommend on 1주 3개  - Enable: every 1 week, 3 papers
+        /auto_recommend off        - Disable auto-recommend
+        /auto_recommend status     - Check current settings
+
+    Args:
+        auto_recommend_storage: Storage for auto-recommend settings
+
+    Returns:
+        Async command handler function
+    """
+
+    async def handle_auto_recommend(
+        ack: AsyncAck,
+        command: dict[str, Any],
+        client: AsyncWebClient,
+        respond: AsyncRespond,
+    ) -> None:
+        """Handle /auto_recommend command."""
+        await ack()
+
+        user_id = command["user_id"]
+        channel_id = command["channel_id"]
+        text = command.get("text", "").strip().lower()
+
+        log.info(f"Received /auto_recommend from user {user_id}: '{text}'")
+
+        try:
+            # Parse command
+            if not text or text == "status":
+                # Show current status
+                settings = await auto_recommend_storage.get(user_id)
+
+                if not settings:
+                    await client.chat_postEphemeral(
+                        channel=channel_id,
+                        user=user_id,
+                        text=(
+                            "📊 *자동 추천 설정*\n\n"
+                            "현재 자동 추천이 설정되지 않았습니다.\n\n"
+                            "*사용법:*\n"
+                            "• `/auto_recommend on 1일 3개` - 1일마다 3개 추천\n"
+                            "• `/auto_recommend on 2시간 5개` - 2시간마다 5개 추천\n"
+                            "• `/auto_recommend on 1주 3개` - 1주마다 3개 추천\n"
+                            "• `/auto_recommend off` - 자동 추천 끄기"
+                        ),
+                    )
+                else:
+                    status = "✅ 활성화" if settings.enabled else "⏸️ 비활성화"
+                    last_run = (
+                        settings.last_run_at.strftime("%Y-%m-%d %H:%M")
+                        if settings.last_run_at
+                        else "없음"
+                    )
+
+                    await client.chat_postEphemeral(
+                        channel=channel_id,
+                        user=user_id,
+                        text=(
+                            f"📊 *자동 추천 설정*\n\n"
+                            f"*상태:* {status}\n"
+                            f"*주기:* {settings.get_interval_display()}마다\n"
+                            f"*논문 수:* {settings.paper_count}개\n"
+                            f"*마지막 실행:* {last_run}\n\n"
+                            "_설정 변경: `/auto_recommend on <주기> <개수>`_"
+                        ),
+                    )
+                return
+
+            if text == "off":
+                # Disable auto-recommend
+                disabled = await auto_recommend_storage.disable(user_id)
+
+                if disabled:
+                    await client.chat_postEphemeral(
+                        channel=channel_id,
+                        user=user_id,
+                        text="⏸️ 자동 추천이 비활성화되었습니다.\n\n다시 활성화하려면 `/auto_recommend on <주기> <개수>`를 사용하세요.",
+                    )
+                else:
+                    await client.chat_postEphemeral(
+                        channel=channel_id,
+                        user=user_id,
+                        text="⚠️ 설정된 자동 추천이 없습니다.",
+                    )
+                return
+
+            if text.startswith("on"):
+                # Parse: on 1일 3개
+                args = text[2:].strip()
+
+                # Parse interval and count
+                parsed = _parse_auto_recommend_args(args)
+
+                if not parsed:
+                    await client.chat_postEphemeral(
+                        channel=channel_id,
+                        user=user_id,
+                        text=(
+                            "⚠️ 잘못된 형식입니다.\n\n"
+                            "*올바른 사용법:*\n"
+                            "• `/auto_recommend on 1일 3개`\n"
+                            "• `/auto_recommend on 2시간 5개`\n"
+                            "• `/auto_recommend on 30분 2개`\n"
+                            "• `/auto_recommend on 1주 3개`"
+                        ),
+                    )
+                    return
+
+                interval_value, interval_unit, paper_count = parsed
+
+                # Save settings
+                settings = await auto_recommend_storage.set(
+                    user_id=user_id,
+                    interval_value=interval_value,
+                    interval_unit=interval_unit,
+                    paper_count=paper_count,
+                )
+
+                await client.chat_postEphemeral(
+                    channel=channel_id,
+                    user=user_id,
+                    text=(
+                        f"✅ 자동 추천이 설정되었습니다!\n\n"
+                        f"*주기:* {settings.get_interval_display()}마다\n"
+                        f"*논문 수:* {paper_count}개\n\n"
+                        f"_설정된 주기에 따라 자동으로 논문이 추천됩니다._"
+                    ),
+                )
+                return
+
+            # Unknown command
+            await client.chat_postEphemeral(
+                channel=channel_id,
+                user=user_id,
+                text=(
+                    "⚠️ 알 수 없는 명령입니다.\n\n"
+                    "*사용법:*\n"
+                    "• `/auto_recommend status` - 현재 설정 확인\n"
+                    "• `/auto_recommend on 1일 3개` - 자동 추천 설정\n"
+                    "• `/auto_recommend off` - 자동 추천 끄기"
+                ),
+            )
+
+        except Exception as e:
+            error_msg = handle_command_error(e, "/auto_recommend")
+            await client.chat_postEphemeral(
+                channel=channel_id,
+                user=user_id,
+                text=error_msg,
+            )
+
+    return handle_auto_recommend
+
+
+def _parse_auto_recommend_args(
+    args: str,
+) -> Optional[tuple[int, IntervalUnit, int]]:
+    """Parse auto-recommend command arguments.
+
+    Args:
+        args: Command arguments like "1일 3개" or "2시간 5개"
+
+    Returns:
+        Tuple of (interval_value, interval_unit, paper_count) or None if invalid
+    """
+    if not args:
+        return None
+
+    # Pattern: <number><unit> <number>개
+    # Units: 분, 시간, 일, 주
+    pattern = r"(\d+)\s*(분|시간|일|주)\s+(\d+)\s*개?"
+
+    match = re.match(pattern, args.strip())
+    if not match:
+        return None
+
+    interval_value = int(match.group(1))
+    unit_str = match.group(2)
+    paper_count = int(match.group(3))
+
+    # Map Korean unit to IntervalUnit
+    unit_map = {
+        "분": IntervalUnit.MINUTES,
+        "시간": IntervalUnit.HOURS,
+        "일": IntervalUnit.DAYS,
+        "주": IntervalUnit.WEEKS,
+    }
+
+    interval_unit = unit_map.get(unit_str)
+    if not interval_unit:
+        return None
+
+    # Validate ranges
+    if interval_value < 1:
+        return None
+    if paper_count < 1 or paper_count > 10:
+        return None
+
+    return (interval_value, interval_unit, paper_count)

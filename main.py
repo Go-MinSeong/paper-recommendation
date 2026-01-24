@@ -44,6 +44,8 @@ async def lifespan(app: FastAPI) -> Any:
     from src.slack.app import create_slack_app, start_socket_mode
     from src.scheduler import PaperCollectionScheduler
     from src.scheduler.recommendation import RecommendationScheduler
+    from src.scheduler.auto_recommend import AutoRecommendScheduler
+    from mcp_servers.auto_recommend.storage import AutoRecommendStorage
     from slack_sdk.web.async_client import AsyncWebClient
 
     # 1. Initialize Vector Store
@@ -66,6 +68,11 @@ async def lifespan(app: FastAPI) -> Any:
     log.info("Initializing Recommendation History Storage...")
     recommendation_history = RecommendationHistoryStorage()
     log.info("Recommendation History Storage initialized")
+
+    # 4.5 Initialize Auto-Recommend Storage
+    log.info("Initializing Auto-Recommend Storage...")
+    auto_recommend_storage = AutoRecommendStorage()
+    log.info("Auto-Recommend Storage initialized")
 
     # 5. Initialize Recommendation Engine
     log.info("Initializing Recommendation Engine...")
@@ -97,6 +104,7 @@ async def lifespan(app: FastAPI) -> Any:
     slack_app = create_slack_app(
         recommendation_engine=engine,
         interest_storage=storage,
+        auto_recommend_storage=auto_recommend_storage,
     )
     log.info("Slack App created")
 
@@ -122,6 +130,19 @@ async def lifespan(app: FastAPI) -> Any:
     else:
         log.info("Recommendation Scheduler is disabled (AUTO_RECOMMEND_ENABLED=false)")
 
+    # 9. Initialize and Start User Auto-Recommend Scheduler
+    log.info("Initializing User Auto-Recommend Scheduler...")
+    slack_client = AsyncWebClient(token=settings.slack_bot_token)
+    auto_recommend_scheduler = AutoRecommendScheduler(
+        auto_recommend_storage=auto_recommend_storage,
+        interest_storage=storage,
+        recommendation_engine=engine,
+        slack_client=slack_client,
+        check_interval=60.0,  # Check every minute
+    )
+    await auto_recommend_scheduler.start()
+    log.info("User Auto-Recommend Scheduler started")
+
     log.info("AIE Insight Bot started successfully")
 
     yield
@@ -134,6 +155,11 @@ async def lifespan(app: FastAPI) -> Any:
         log.info("Stopping Recommendation Scheduler...")
         await recommendation_scheduler.stop()
         log.info("Recommendation Scheduler stopped")
+
+    # Stop User Auto-Recommend Scheduler
+    log.info("Stopping User Auto-Recommend Scheduler...")
+    await auto_recommend_scheduler.stop()
+    log.info("User Auto-Recommend Scheduler stopped")
 
     # Stop Paper Collection Scheduler
     log.info("Stopping Paper Collection Scheduler...")

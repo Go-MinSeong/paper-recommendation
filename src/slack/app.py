@@ -15,6 +15,7 @@ from config.logger import log
 from src.recommender.engine import RecommendationEngine
 from mcp_servers.interest_manager.storage import InterestStorage
 from mcp_servers.recommendation_history.storage import RecommendationHistoryStorage
+from mcp_servers.auto_recommend.storage import AutoRecommendStorage
 
 
 class SlackAppDependencies:
@@ -24,6 +25,7 @@ class SlackAppDependencies:
         recommendation_engine: Engine for generating paper recommendations
         interest_storage: Storage for user interests
         recommendation_history: Storage for recommendation history
+        auto_recommend_storage: Storage for auto-recommend settings
         settings: Application settings
     """
 
@@ -32,6 +34,7 @@ class SlackAppDependencies:
         recommendation_engine: RecommendationEngine,
         interest_storage: InterestStorage,
         recommendation_history: RecommendationHistoryStorage,
+        auto_recommend_storage: AutoRecommendStorage | None = None,
     ):
         """Initialize dependencies container.
 
@@ -39,10 +42,12 @@ class SlackAppDependencies:
             recommendation_engine: Engine for generating paper recommendations
             interest_storage: Storage for user interests
             recommendation_history: Storage for recommendation history
+            auto_recommend_storage: Storage for auto-recommend settings
         """
         self.recommendation_engine = recommendation_engine
         self.interest_storage = interest_storage
         self.recommendation_history = recommendation_history
+        self.auto_recommend_storage = auto_recommend_storage or AutoRecommendStorage()
         self.settings = get_settings()
 
 
@@ -50,6 +55,7 @@ def create_slack_app(
     recommendation_engine: RecommendationEngine,
     interest_storage: InterestStorage,
     recommendation_history: RecommendationHistoryStorage | None = None,
+    auto_recommend_storage: AutoRecommendStorage | None = None,
 ) -> AsyncApp:
     """Create and configure Slack Bolt AsyncApp with command handlers.
 
@@ -57,6 +63,7 @@ def create_slack_app(
         recommendation_engine: Engine for generating paper recommendations
         interest_storage: Storage for user interests
         recommendation_history: Storage for recommendation history (optional, uses engine's if not provided)
+        auto_recommend_storage: Storage for auto-recommend settings (optional)
 
     Returns:
         Configured AsyncApp instance with registered handlers
@@ -84,6 +91,7 @@ def create_slack_app(
         recommendation_engine=recommendation_engine,
         interest_storage=interest_storage,
         recommendation_history=recommendation_history,
+        auto_recommend_storage=auto_recommend_storage,
     )
 
     # Register command handlers
@@ -106,6 +114,7 @@ def _register_command_handlers(app: AsyncApp, deps: SlackAppDependencies) -> Non
         create_my_interest_handler,
         create_clear_interest_handler,
         create_history_handler,
+        create_auto_recommend_handler,
     )
 
     # Register /set_interest command
@@ -132,9 +141,13 @@ def _register_command_handlers(app: AsyncApp, deps: SlackAppDependencies) -> Non
     history_handler = create_history_handler(deps.recommendation_history)
     app.command("/history")(history_handler)
 
+    # Register /auto_recommend command
+    auto_recommend_handler = create_auto_recommend_handler(deps.auto_recommend_storage)
+    app.command("/auto_recommend")(auto_recommend_handler)
+
     log.info(
         "Command handlers registered: "
-        "/set_interest, /my_interest, /clear_interest, /insight, /history"
+        "/set_interest, /my_interest, /clear_interest, /insight, /history, /auto_recommend"
     )
 
 
