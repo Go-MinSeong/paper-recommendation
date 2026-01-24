@@ -3,7 +3,7 @@
 This module provides interface to fetch papers from Hugging Face Daily Papers API.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 import httpx
@@ -68,14 +68,23 @@ class HuggingFacePapersClient:
         wait=wait_exponential(multiplier=1, min=2, max=10),
         reraise=True,
     )
-    async def fetch_papers(self, limit: int = 30) -> PaperCollection:
-        """Fetch latest papers from Hugging Face.
+    async def fetch_papers(
+        self,
+        limit: int = 100,
+        days: int = 7,
+        sort_by_upvotes: bool = True,
+    ) -> PaperCollection:
+        """Fetch trending papers from Hugging Face within a date range.
+
+        Fetches papers from the last N days and returns top papers by upvotes.
 
         Args:
-            limit: Maximum number of papers to fetch (1-100)
+            limit: Maximum number of papers to return (1-200)
+            days: Number of days to look back (default: 7 for weekly trending)
+            sort_by_upvotes: Sort by upvotes descending (default: True)
 
         Returns:
-            PaperCollection: Collection of papers
+            PaperCollection: Collection of top trending papers
 
         Raises:
             HuggingFacePapersAPIError: If API request fails
@@ -83,35 +92,59 @@ class HuggingFacePapersClient:
 
         Examples:
             >>> async with HuggingFacePapersClient() as client:
-            ...     papers = await client.fetch_papers(limit=30)
-            ...     print(f"Fetched {len(papers)} papers")
+            ...     papers = await client.fetch_papers(limit=100, days=7)
+            ...     print(f"Fetched {len(papers)} trending papers from last 7 days")
         """
-        if not 1 <= limit <= 100:
-            raise ValueError(f"Limit must be between 1 and 100, got {limit}")
+        if not 1 <= limit <= 200:
+            raise ValueError(f"Limit must be between 1 and 200, got {limit}")
 
         if not self._client:
             raise HuggingFacePapersAPIError("Client not initialized. Use async context manager.")
 
         try:
-            log.info(f"Fetching papers from Hugging Face API (limit={limit})")
+            log.info(f"Fetching papers from Hugging Face API (limit={limit}, days={days})")
 
+            # Fetch more papers to filter by date range
+            fetch_limit = min(limit * 3, 300)  # Fetch more to ensure we have enough after filtering
             url = f"{self.base_url}/daily_papers"
-            response = await self._client.get(url)
+            params = {"limit": fetch_limit}
+
+            response = await self._client.get(url, params=params)
             response.raise_for_status()
 
             data = response.json()
 
-            # Parse response and create Paper objects
+            # Calculate date threshold for filtering
+            date_threshold = datetime.now() - timedelta(days=days)
+
+            # Parse response and filter by date
             papers: list[Paper] = []
-            for item in data[:limit]:
+            for item in data:
                 try:
                     paper = self._parse_paper(item)
-                    papers.append(paper)
+
+                    # Filter by publication date (within last N days)
+                    if paper.published_at and paper.published_at >= date_threshold:
+                        papers.append(paper)
+                    elif not paper.published_at:
+                        # Include papers without publish date (fallback to created_at)
+                        papers.append(paper)
+
                 except Exception as e:
                     log.warning(f"Failed to parse paper: {e}")
                     continue
 
-            log.info(f"Successfully fetched {len(papers)} papers")
+            # Sort by upvotes if requested
+            if sort_by_upvotes:
+                papers.sort(key=lambda p: p.upvotes, reverse=True)
+
+            # Limit results
+            papers = papers[:limit]
+
+            log.info(
+                f"Successfully fetched {len(papers)} trending papers "
+                f"from last {days} days (sorted by upvotes)"
+            )
 
             return PaperCollection(
                 papers=papers,
@@ -179,11 +212,17 @@ class HuggingFacePapersClient:
             return None
 
 
-async def fetch_latest_papers(limit: int = 30) -> PaperCollection:
-    """Convenience function to fetch latest papers.
+async def fetch_latest_papers(
+    limit: int = 100,
+    days: int = 7,
+    sort_by_upvotes: bool = True,
+) -> PaperCollection:
+    """Convenience function to fetch trending papers.
 
     Args:
         limit: Maximum number of papers to fetch
+        days: Number of days to look back
+        sort_by_upvotes: Sort by upvotes descending
 
     Returns:
         PaperCollection: Collection of papers
@@ -192,9 +231,9 @@ async def fetch_latest_papers(limit: int = 30) -> PaperCollection:
         HuggingFacePapersAPIError: If fetching fails
 
     Examples:
-        >>> papers = await fetch_latest_papers(limit=30)
+        >>> papers = await fetch_latest_papers(limit=100, days=7)
         >>> for paper in papers:
-        ...     print(paper.title)
+        ...     print(paper.title, paper.upvotes)
     """
     async with HuggingFacePapersClient() as client:
-        return await client.fetch_papers(limit=limit)
+        return await client.fetch_papers(limit=limit, days=days, sort_by_upvotes=sort_by_upvotes)
