@@ -43,6 +43,7 @@ async def lifespan(app: FastAPI) -> Any:
     from mcp_servers.recommendation_history.storage import RecommendationHistoryStorage
     from src.slack.app import create_slack_app, start_socket_mode
     from src.scheduler import PaperCollectionScheduler
+    from src.scheduler.collector import PaperSource
     from src.scheduler.recommendation import RecommendationScheduler
     from src.scheduler.auto_recommend import AutoRecommendScheduler
     from mcp_servers.auto_recommend.storage import AutoRecommendStorage
@@ -87,12 +88,17 @@ async def lifespan(app: FastAPI) -> Any:
 
     # 6. Initialize and Start Paper Collection Scheduler
     log.info("Initializing Paper Collection Scheduler...")
+    paper_source = PaperSource(settings.paper_source)
     scheduler = PaperCollectionScheduler(
         vector_store=vector_store,
         interval_hours=settings.collection_interval_hours,
         paper_limit=settings.paper_collection_limit,
+        min_upvotes=settings.paper_min_upvotes,
+        min_citations=settings.paper_min_citations,
+        max_age_days=settings.paper_max_age_days,
+        source=paper_source,
     )
-    log.info("Paper Collection Scheduler initialized")
+    log.info(f"Paper Collection Scheduler initialized (source={paper_source.value})")
 
     # Start scheduler (collect papers immediately on startup)
     log.info("Starting Paper Collection Scheduler...")

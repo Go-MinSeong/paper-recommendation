@@ -78,10 +78,30 @@ class Settings(BaseSettings):
 
     # Paper Collection Configuration
     paper_collection_limit: int = Field(
-        default=30,
+        default=100,
         gt=0,
-        le=100,
+        le=200,
         description="Number of papers to fetch from API per collection",
+    )
+    paper_min_upvotes: int = Field(
+        default=10,
+        ge=0,
+        description="Minimum upvotes required for HuggingFace collection (0 to disable)",
+    )
+    paper_min_citations: int = Field(
+        default=10,
+        ge=0,
+        description="Minimum citation count required for Semantic Scholar collection (0 to disable)",
+    )
+    paper_max_age_days: int = Field(
+        default=365,
+        gt=0,
+        le=730,
+        description="Maximum paper age in days for Semantic Scholar (HuggingFace uses weekly trending)",
+    )
+    paper_source: Literal["huggingface", "semantic_scholar", "both"] = Field(
+        default="huggingface",
+        description="Paper source: huggingface, semantic_scholar, or both",
     )
     collection_interval_hours: float = Field(
         default=24.0,

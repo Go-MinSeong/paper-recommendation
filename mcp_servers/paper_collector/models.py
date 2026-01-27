@@ -33,6 +33,7 @@ class Paper(BaseModel):
         description="Publication date",
     )
     upvotes: int = Field(default=0, ge=0, description="Number of upvotes")
+    citation_count: Optional[int] = Field(default=None, description="Citation count from Semantic Scholar")
     created_at: datetime = Field(
         default_factory=datetime.now,
         description="Collection timestamp",

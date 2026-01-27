@@ -39,7 +39,7 @@ def format_single_paper_message(
     """
     blocks: list[dict[str, Any]] = []
 
-    # Build metadata line with publication date and citation count
+    # Build metadata line with publication date, citation count, and upvotes
     metadata_parts = []
 
     if rec.published_at:
@@ -48,6 +48,9 @@ def format_single_paper_message(
 
     if rec.citation_count is not None:
         metadata_parts.append(f"📖 인용 {rec.citation_count}회")
+
+    if rec.upvotes is not None:
+        metadata_parts.append(f"👍 {rec.upvotes}")
 
     metadata_line = " • ".join(metadata_parts) if metadata_parts else ""
 
@@ -63,8 +66,8 @@ def format_single_paper_message(
         }
     )
 
-    # Context: metadata (date, citations, user info)
-    context_text = f"<@{user_interest.user_id}>님을 위한 추천 ({paper_index}/{total_papers})"
+    # Context: metadata (date, citations)
+    context_text = f"{paper_index}/{total_papers}"
     if metadata_line:
         context_text = f"{metadata_line} • {context_text}"
 
@@ -161,7 +164,7 @@ def format_recommendation_header_message(
             "text": {
                 "type": "mrkdwn",
                 "text": (
-                    f"<@{user_interest.user_id}>님을 위한 맞춤 논문 *{total_papers}*건을 추천합니다.\n\n"
+                    f"맞춤 논문 *{total_papers}*건을 추천합니다.\n"
                     f"각 논문에 반응을 남겨주시면 추천 품질 개선에 도움이 됩니다! 👍❤️🔥"
                 ),
             },
@@ -225,7 +228,7 @@ def format_recommendations_message(
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f"추천 논문 {len(recommendations)}건 • <@{user_interest.user_id}>님을 위한 맞춤 추천",
+                    "text": f"추천 논문 {len(recommendations)}건",
                 }
             ],
         }
@@ -244,6 +247,9 @@ def format_recommendations_message(
 
         if rec.citation_count is not None:
             metadata_parts.append(f"📖 인용 {rec.citation_count}회")
+
+        if rec.upvotes is not None:
+            metadata_parts.append(f"👍 {rec.upvotes}")
 
         metadata_line = " • ".join(metadata_parts) if metadata_parts else ""
 

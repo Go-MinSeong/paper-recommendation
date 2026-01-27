@@ -27,6 +27,7 @@ class Recommendation(BaseModel):
         url: Paper URL
         published_at: Publication date
         citation_count: Number of citations from Semantic Scholar
+        upvotes: HuggingFace upvotes count
         core_summary: General summary
         contextualized_summary: Interest-based summary
     """
@@ -37,6 +38,7 @@ class Recommendation(BaseModel):
     url: str = Field(..., description="Paper URL")
     published_at: Optional[datetime] = Field(default=None, description="Publication date")
     citation_count: Optional[int] = Field(default=None, description="Citation count")
+    upvotes: Optional[int] = Field(default=None, description="HuggingFace upvotes")
     core_summary: str = Field(..., description="Core summary")
     contextualized_summary: str = Field(..., description="Contextualized summary")
 
@@ -131,7 +133,7 @@ class RecommendationEngine:
 
             # Step 2: Search for similar papers (fetch more to account for filtering)
             search_limit = self.top_k + len(recommended_ids) if recommended_ids else self.top_k
-            search_limit = min(search_limit, self.top_k * 3)  # Cap at 3x to avoid excessive search
+            search_limit = max(search_limit, self.top_k * 10)  # Fetch 10x to ensure enough after deduplication
 
             log.debug(f"[Engine] Step 2: Searching for similar papers (limit={search_limit})...")
             similar_papers = await self.vector_store.search_similar_papers(
@@ -229,6 +231,7 @@ class RecommendationEngine:
                             url=paper["url"],
                             published_at=published_at,
                             citation_count=citation_count,
+                            upvotes=paper.get("upvotes"),
                             core_summary=core_summary,
                             contextualized_summary=contextualized_summary,
                         )

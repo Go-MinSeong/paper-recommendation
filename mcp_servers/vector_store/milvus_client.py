@@ -345,7 +345,7 @@ class MilvusClient:
                 data=[query_embedding],
                 anns_field="embedding",
                 param=search_params,
-                limit=top_k * 2,  # Fetch more to filter by score
+                limit=top_k,  # Return exactly top_k after filtering
                 output_fields=["paper_id", "title", "abstract", "url", "upvotes"],
             )
 
