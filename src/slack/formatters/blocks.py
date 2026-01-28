@@ -168,30 +168,19 @@ def format_paper_thread_message(
         # Authors are comma-separated, get the first one
         first_author = rec.authors.split(",")[0].strip()
 
-    # Build metadata section - line 1: author and date
-    line1_parts = []
+    # Build metadata section - single line: author, upvotes, date
+    metadata_parts = []
     if first_author:
-        line1_parts.append(f"👤 *{first_author}* et al.")
+        metadata_parts.append(f"👤 *{first_author}* et al.")
+    if rec.upvotes is not None and rec.upvotes > 0:
+        metadata_parts.append(f"👍 *{rec.upvotes}*")
     if rec.published_at:
         date_str = rec.published_at.strftime("%Y-%m-%d")
-        line1_parts.append(f"📅 {date_str}")
-
-    # Build metadata section - line 2: citations and upvotes
-    line2_parts = []
+        metadata_parts.append(f"📅 {date_str}")
     if rec.citation_count is not None:
-        line2_parts.append(f"📖 인용: *{rec.citation_count}회*")
-    if rec.upvotes is not None and rec.upvotes > 0:
-        line2_parts.append(f"👍 Upvotes: *{rec.upvotes}*")
+        metadata_parts.append(f"📖 인용 *{rec.citation_count}회*")
 
-    # Combine metadata lines
-    metadata_text = ""
-    if line1_parts:
-        metadata_text = " • ".join(line1_parts)
-    if line2_parts:
-        if metadata_text:
-            metadata_text += "\n" + " • ".join(line2_parts)
-        else:
-            metadata_text = " • ".join(line2_parts)
+    metadata_text = " • ".join(metadata_parts) if metadata_parts else ""
 
     if metadata_text:
         blocks.append(
