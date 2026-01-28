@@ -10,6 +10,7 @@ Available commands:
 - /insight: Get personalized recommendations
 - /history: View recommendation history
 - /auto_recommend: Configure automatic recommendations
+- /collect: Manually trigger paper collection
 """
 
 import asyncio
@@ -736,3 +737,86 @@ def _parse_auto_recommend_args(
         return None
 
     return (interval_value, interval_unit, paper_count)
+
+
+def create_collect_handler(
+    paper_scheduler: "PaperCollectionScheduler",
+) -> Callable:
+    """Create /collect command handler with injected dependencies.
+
+    Args:
+        paper_scheduler: Paper collection scheduler instance
+
+    Returns:
+        Async command handler function
+    """
+    from src.scheduler.collector import PaperCollectionScheduler
+
+    async def handle_collect(
+        ack: AsyncAck,
+        body: dict[str, Any],
+        client: AsyncWebClient,
+    ) -> None:
+        """Handle /collect command.
+
+        Manually triggers paper collection from configured sources.
+
+        Args:
+            ack: Acknowledgment function
+            body: Command body containing user and channel info
+            client: Slack Web API client
+        """
+        await ack()
+
+        user_id = body.get("user_id", "")
+        channel_id = body.get("channel_id", "")
+
+        log.info(
+            f"User {user_id} triggered manual paper collection",
+            extra={"user_id": user_id, "command": "/collect"},
+        )
+
+        try:
+            # Send initial message
+            await client.chat_postEphemeral(
+                channel=channel_id,
+                user=user_id,
+                text="🔄 논문 수집을 시작합니다... 잠시만 기다려주세요.",
+            )
+
+            # Trigger paper collection
+            collected_count = await paper_scheduler.collect_papers()
+
+            # Send result
+            if collected_count > 0:
+                await client.chat_postEphemeral(
+                    channel=channel_id,
+                    user=user_id,
+                    text=f"✅ 논문 수집이 완료되었습니다!\n\n*수집된 논문:* {collected_count}건",
+                )
+            else:
+                await client.chat_postEphemeral(
+                    channel=channel_id,
+                    user=user_id,
+                    text=(
+                        "⚠️ 새로 수집된 논문이 없습니다.\n\n"
+                        "가능한 원인:\n"
+                        "• 이미 모든 논문이 수집되었음\n"
+                        "• 필터 조건(upvotes >= 10)에 맞는 새 논문이 없음"
+                    ),
+                )
+
+            log.info(
+                f"Manual paper collection completed: {collected_count} papers",
+                extra={"user_id": user_id, "collected_count": collected_count},
+            )
+
+        except Exception as e:
+            error_msg = handle_command_error(e, "/collect")
+            await client.chat_postEphemeral(
+                channel=channel_id,
+                user=user_id,
+                text=error_msg,
+            )
+
+    return handle_collect

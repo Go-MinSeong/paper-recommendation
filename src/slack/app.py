@@ -16,6 +16,7 @@ from src.recommender.engine import RecommendationEngine
 from mcp_servers.interest_manager.storage import InterestStorage
 from mcp_servers.recommendation_history.storage import RecommendationHistoryStorage
 from mcp_servers.auto_recommend.storage import AutoRecommendStorage
+from src.scheduler.collector import PaperCollectionScheduler
 
 
 class SlackAppDependencies:
@@ -26,6 +27,7 @@ class SlackAppDependencies:
         interest_storage: Storage for user interests
         recommendation_history: Storage for recommendation history
         auto_recommend_storage: Storage for auto-recommend settings
+        paper_scheduler: Paper collection scheduler
         settings: Application settings
     """
 
@@ -35,6 +37,7 @@ class SlackAppDependencies:
         interest_storage: InterestStorage,
         recommendation_history: RecommendationHistoryStorage,
         auto_recommend_storage: AutoRecommendStorage | None = None,
+        paper_scheduler: PaperCollectionScheduler | None = None,
     ):
         """Initialize dependencies container.
 
@@ -43,11 +46,13 @@ class SlackAppDependencies:
             interest_storage: Storage for user interests
             recommendation_history: Storage for recommendation history
             auto_recommend_storage: Storage for auto-recommend settings
+            paper_scheduler: Paper collection scheduler
         """
         self.recommendation_engine = recommendation_engine
         self.interest_storage = interest_storage
         self.recommendation_history = recommendation_history
         self.auto_recommend_storage = auto_recommend_storage or AutoRecommendStorage()
+        self.paper_scheduler = paper_scheduler
         self.settings = get_settings()
 
 
@@ -56,6 +61,7 @@ def create_slack_app(
     interest_storage: InterestStorage,
     recommendation_history: RecommendationHistoryStorage | None = None,
     auto_recommend_storage: AutoRecommendStorage | None = None,
+    paper_scheduler: PaperCollectionScheduler | None = None,
 ) -> AsyncApp:
     """Create and configure Slack Bolt AsyncApp with command handlers.
 
@@ -64,6 +70,7 @@ def create_slack_app(
         interest_storage: Storage for user interests
         recommendation_history: Storage for recommendation history (optional, uses engine's if not provided)
         auto_recommend_storage: Storage for auto-recommend settings (optional)
+        paper_scheduler: Paper collection scheduler (optional, required for /collect command)
 
     Returns:
         Configured AsyncApp instance with registered handlers
@@ -92,6 +99,7 @@ def create_slack_app(
         interest_storage=interest_storage,
         recommendation_history=recommendation_history,
         auto_recommend_storage=auto_recommend_storage,
+        paper_scheduler=paper_scheduler,
     )
 
     # Register command handlers
@@ -115,6 +123,7 @@ def _register_command_handlers(app: AsyncApp, deps: SlackAppDependencies) -> Non
         create_clear_interest_handler,
         create_history_handler,
         create_auto_recommend_handler,
+        create_collect_handler,
     )
 
     # Register /set_interest command
@@ -145,10 +154,20 @@ def _register_command_handlers(app: AsyncApp, deps: SlackAppDependencies) -> Non
     auto_recommend_handler = create_auto_recommend_handler(deps.auto_recommend_storage)
     app.command("/auto_recommend")(auto_recommend_handler)
 
-    log.info(
-        "Command handlers registered: "
-        "/set_interest, /my_interest, /clear_interest, /insight, /history, /auto_recommend"
-    )
+    # Register /collect command (only if paper_scheduler is available)
+    if deps.paper_scheduler:
+        collect_handler = create_collect_handler(deps.paper_scheduler)
+        app.command("/collect")(collect_handler)
+        log.info(
+            "Command handlers registered: "
+            "/set_interest, /my_interest, /clear_interest, /insight, /history, /auto_recommend, /collect"
+        )
+    else:
+        log.info(
+            "Command handlers registered: "
+            "/set_interest, /my_interest, /clear_interest, /insight, /history, /auto_recommend"
+        )
+        log.warning("/collect command not registered (paper_scheduler not provided)")
 
 
 async def start_socket_mode(app: AsyncApp) -> None:

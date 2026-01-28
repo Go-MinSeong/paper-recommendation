@@ -111,6 +111,7 @@ async def lifespan(app: FastAPI) -> Any:
         recommendation_engine=engine,
         interest_storage=storage,
         auto_recommend_storage=auto_recommend_storage,
+        paper_scheduler=scheduler,
     )
     log.info("Slack App created")
 
