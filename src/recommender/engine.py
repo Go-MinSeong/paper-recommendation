@@ -25,6 +25,7 @@ class Recommendation(BaseModel):
         title: Paper title
         abstract: Paper abstract
         url: Paper URL
+        authors: Paper authors (comma-separated)
         published_at: Publication date
         citation_count: Number of citations from Semantic Scholar
         upvotes: HuggingFace upvotes count
@@ -36,6 +37,7 @@ class Recommendation(BaseModel):
     title: str = Field(..., description="Paper title")
     abstract: str = Field(..., description="Paper abstract")
     url: str = Field(..., description="Paper URL")
+    authors: Optional[str] = Field(default=None, description="Paper authors")
     published_at: Optional[datetime] = Field(default=None, description="Publication date")
     citation_count: Optional[int] = Field(default=None, description="Citation count")
     upvotes: Optional[int] = Field(default=None, description="HuggingFace upvotes")
@@ -248,6 +250,7 @@ class RecommendationEngine:
                             title=paper["title"],
                             abstract=paper["abstract"],
                             url=paper["url"],
+                            authors=paper.get("authors"),
                             published_at=published_at,
                             citation_count=citation_count,
                             upvotes=paper.get("upvotes"),
