@@ -130,6 +130,151 @@ def format_single_paper_message(
     return blocks
 
 
+def format_paper_thread_message(
+    rec: Recommendation,
+    paper_index: int,
+    total_papers: int,
+) -> list[dict[str, Any]]:
+    """Format paper metadata as thread main message.
+
+    This is posted as the main thread message with title, date, citations, upvotes, and link.
+    Summaries are posted as a thread reply.
+
+    Args:
+        rec: Paper recommendation
+        paper_index: 1-based index of this paper
+        total_papers: Total number of papers in this recommendation batch
+
+    Returns:
+        List of Block Kit blocks for the thread main message
+
+    Example:
+        >>> rec = Recommendation(...)
+        >>> blocks = format_paper_thread_message(rec, 1, 3)
+    """
+    blocks: list[dict[str, Any]] = []
+
+    # Header with paper title
+    blocks.append(
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"📄 {rec.title[:145]}{'...' if len(rec.title) > 145 else ''}",
+                "emoji": True,
+            },
+        }
+    )
+
+    # Build metadata section
+    metadata_parts = []
+
+    if rec.published_at:
+        date_str = rec.published_at.strftime("%Y-%m-%d")
+        metadata_parts.append(f"📅 출간일: *{date_str}*")
+
+    if rec.citation_count is not None:
+        metadata_parts.append(f"📖 인용: *{rec.citation_count}회*")
+
+    if rec.upvotes is not None:
+        metadata_parts.append(f"👍 Upvotes: *{rec.upvotes}*")
+
+    if metadata_parts:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": " • ".join(metadata_parts),
+                },
+            }
+        )
+
+    # Context with index
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"추천 {paper_index}/{total_papers}",
+                }
+            ],
+        }
+    )
+
+    # Action button
+    blocks.append(
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "📎 논문 읽기",
+                        "emoji": True,
+                    },
+                    "url": rec.url,
+                    "action_id": f"read_paper_{rec.paper_id}",
+                    "style": "primary",
+                }
+            ],
+        }
+    )
+
+    return blocks
+
+
+def format_paper_summary_reply(
+    rec: Recommendation,
+    user_interest: UserInterest,
+) -> list[dict[str, Any]]:
+    """Format paper summaries as thread reply.
+
+    This is posted as a reply to the main thread message.
+
+    Args:
+        rec: Paper recommendation with summaries
+        user_interest: User's interest for context
+
+    Returns:
+        List of Block Kit blocks for the thread reply
+
+    Example:
+        >>> rec = Recommendation(...)
+        >>> interest = UserInterest(user_id="U123", interest="VLM 연구")
+        >>> blocks = format_paper_summary_reply(rec, interest)
+    """
+    blocks: list[dict[str, Any]] = []
+
+    # Core summary
+    blocks.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*📝 핵심 요약*\n{rec.core_summary}",
+            },
+        }
+    )
+
+    blocks.append({"type": "divider"})
+
+    # Contextualized summary with user interest
+    blocks.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*💡 맞춤 해석* _{user_interest.interest[:50]}{'...' if len(user_interest.interest) > 50 else ''}_\n{rec.contextualized_summary}",
+            },
+        }
+    )
+
+    return blocks
+
+
 def format_recommendation_header_message(
     user_interest: UserInterest,
     total_papers: int,

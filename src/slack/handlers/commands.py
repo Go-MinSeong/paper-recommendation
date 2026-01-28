@@ -32,6 +32,8 @@ from src.slack.formatters.blocks import (
     format_interest_saved_message,
     format_single_paper_message,
     format_recommendation_header_message,
+    format_paper_thread_message,
+    format_paper_summary_reply,
 )
 
 
@@ -287,26 +289,40 @@ async def _process_insight_request(
             },
         )
 
-        # Post each paper as an individual message for per-paper reactions
+        # Post each paper as a thread with summaries as reply
         total_papers = len(recommendations)
 
         for idx, rec in enumerate(recommendations, 1):
-            # Format individual paper message
-            blocks = format_single_paper_message(
+            # Format main thread message (title, date, citations, upvotes, link)
+            thread_blocks = format_paper_thread_message(
                 rec=rec,
-                user_interest=user_interest,
                 paper_index=idx,
                 total_papers=total_papers,
             )
 
-            # Post to channel
-            await client.chat_postMessage(
+            # Post main thread message
+            thread_response = await client.chat_postMessage(
                 channel=settings.slack_channel_id,
-                blocks=blocks,
+                blocks=thread_blocks,
                 text=f"📄 {rec.title}",
             )
 
-            log.debug(f"Posted paper {idx}/{total_papers}: {rec.title[:50]}...")
+            thread_ts = thread_response.get("ts")
+
+            # Format and post summaries as thread reply
+            summary_blocks = format_paper_summary_reply(
+                rec=rec,
+                user_interest=user_interest,
+            )
+
+            await client.chat_postMessage(
+                channel=settings.slack_channel_id,
+                thread_ts=thread_ts,
+                blocks=summary_blocks,
+                text=f"📝 {rec.title} - 요약",
+            )
+
+            log.debug(f"Posted paper {idx}/{total_papers} with thread reply: {rec.title[:50]}...")
 
         # Send success message to user
         await client.chat_postEphemeral(

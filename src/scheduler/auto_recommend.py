@@ -14,7 +14,10 @@ from config.settings import get_settings
 from mcp_servers.auto_recommend.storage import AutoRecommendStorage
 from mcp_servers.interest_manager.storage import InterestStorage
 from src.recommender.engine import RecommendationEngine
-from src.slack.formatters.blocks import format_single_paper_message
+from src.slack.formatters.blocks import (
+    format_paper_thread_message,
+    format_paper_summary_reply,
+)
 
 
 class AutoRecommendScheduler:
@@ -145,19 +148,35 @@ class AutoRecommendScheduler:
                 log.info(f"No new recommendations available for user {user_id}")
                 return
 
-            # Post each paper as an individual message
+            # Post each paper as a thread with summaries as reply
             for idx, rec in enumerate(recommendations, 1):
-                blocks = format_single_paper_message(
+                # Format main thread message (title, date, citations, upvotes, link)
+                thread_blocks = format_paper_thread_message(
                     rec=rec,
-                    user_interest=user_interest,
                     paper_index=idx,
                     total_papers=len(recommendations),
                 )
 
+                # Post main thread message
+                thread_response = await self.slack_client.chat_postMessage(
+                    channel=self.settings.slack_channel_id,
+                    blocks=thread_blocks,
+                    text=f"📄 [자동추천] {rec.title}",
+                )
+
+                thread_ts = thread_response.get("ts")
+
+                # Format and post summaries as thread reply
+                summary_blocks = format_paper_summary_reply(
+                    rec=rec,
+                    user_interest=user_interest,
+                )
+
                 await self.slack_client.chat_postMessage(
                     channel=self.settings.slack_channel_id,
-                    blocks=blocks,
-                    text=f"📄 [자동추천] {rec.title}",
+                    thread_ts=thread_ts,
+                    blocks=summary_blocks,
+                    text=f"📝 {rec.title} - 요약",
                 )
 
             log.info(
