@@ -175,11 +175,11 @@ class HuggingFacePapersClient:
                 f"(week={target_week}, limit={limit}, min_upvotes={min_upvotes})"
             )
 
-            # Fetch trending papers for the week
+            # Fetch trending papers for the week (HuggingFace API limit is 100)
             raw_papers = await self._list_daily_papers(
                 week=target_week,
                 sort="trending",
-                limit=500,  # Fetch more to filter by upvotes
+                limit=100,  # HuggingFace API max limit is 100
             )
 
             log.debug(f"Received {len(raw_papers)} papers from API")
