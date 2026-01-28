@@ -118,8 +118,10 @@ class VectorStoreService:
             abstracts = [paper.abstract for paper in new_papers]
             urls = [str(paper.url) for paper in new_papers]
             upvotes = [paper.upvotes for paper in new_papers]
-            authors = [paper.authors or "" for paper in new_papers]
-            ai_summaries = [paper.ai_summary or "" for paper in new_papers]
+            # Truncate authors to max 1000 chars (Milvus schema limit)
+            authors = [(paper.authors or "")[:1000] for paper in new_papers]
+            # Truncate ai_summaries to max 2000 chars (Milvus schema limit)
+            ai_summaries = [(paper.ai_summary or "")[:2000] for paper in new_papers]
 
             # Insert into Milvus
             inserted_ids = await self.milvus.insert(
