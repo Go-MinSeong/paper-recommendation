@@ -41,6 +41,7 @@ class Recommendation(BaseModel):
     published_at: Optional[datetime] = Field(default=None, description="Publication date")
     citation_count: Optional[int] = Field(default=None, description="Citation count")
     upvotes: Optional[int] = Field(default=None, description="HuggingFace upvotes")
+    ai_summary: Optional[str] = Field(default=None, description="AI-generated summary from HuggingFace")
     core_summary: str = Field(..., description="Core summary")
     contextualized_summary: str = Field(..., description="Contextualized summary")
 
@@ -254,6 +255,7 @@ class RecommendationEngine:
                             published_at=published_at,
                             citation_count=citation_count,
                             upvotes=paper.get("upvotes"),
+                            ai_summary=paper.get("ai_summary"),
                             core_summary=core_summary,
                             contextualized_summary=contextualized_summary,
                         )

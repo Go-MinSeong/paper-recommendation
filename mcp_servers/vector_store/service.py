@@ -119,6 +119,7 @@ class VectorStoreService:
             urls = [str(paper.url) for paper in new_papers]
             upvotes = [paper.upvotes for paper in new_papers]
             authors = [paper.authors or "" for paper in new_papers]
+            ai_summaries = [paper.ai_summary or "" for paper in new_papers]
 
             # Insert into Milvus
             inserted_ids = await self.milvus.insert(
@@ -129,6 +130,7 @@ class VectorStoreService:
                 embeddings=embeddings,
                 upvotes=upvotes,
                 authors=authors,
+                ai_summaries=ai_summaries,
             )
 
             log.info(f"Successfully stored {len(inserted_ids)} new papers")

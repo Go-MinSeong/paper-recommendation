@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Literal, Optional
 
+import httpx
 from huggingface_hub import HfApi
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -45,14 +46,19 @@ class HuggingFacePapersClient:
         """
         self.api = HfApi(token=token)
         self._executor = ThreadPoolExecutor(max_workers=3)
+        self._http_client: Optional[httpx.AsyncClient] = None
 
     async def __aenter__(self) -> "HuggingFacePapersClient":
         """Async context manager entry."""
+        self._http_client = httpx.AsyncClient(timeout=30.0)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         """Async context manager exit."""
         self._executor.shutdown(wait=False)
+        if self._http_client:
+            await self._http_client.aclose()
+            self._http_client = None
 
     def _get_current_week(self) -> str:
         """Get current week in ISO format (YYYY-Www).
@@ -62,6 +68,41 @@ class HuggingFacePapersClient:
         """
         now = datetime.now()
         return now.strftime("%G-W%V")
+
+    async def fetch_ai_summary(self, paper_id: str) -> Optional[str]:
+        """Fetch AI-generated summary from HuggingFace API.
+
+        Args:
+            paper_id: Paper ID (arxiv ID)
+
+        Returns:
+            Optional[str]: AI-generated summary or None if not available
+
+        Examples:
+            >>> async with HuggingFacePapersClient() as client:
+            ...     summary = await client.fetch_ai_summary("2601.16973")
+        """
+        if not self._http_client:
+            log.warning("HTTP client not initialized. Use async context manager.")
+            return None
+
+        try:
+            url = f"https://huggingface.co/api/papers/{paper_id}"
+            response = await self._http_client.get(url)
+
+            if response.status_code == 200:
+                data = response.json()
+                ai_summary = data.get("ai_summary")
+                if ai_summary:
+                    log.debug(f"Fetched AI summary for paper {paper_id}")
+                    return ai_summary
+            else:
+                log.debug(f"No AI summary found for paper {paper_id}: HTTP {response.status_code}")
+
+        except Exception as e:
+            log.warning(f"Failed to fetch AI summary for {paper_id}: {e}")
+
+        return None
 
     def _list_daily_papers_sync(
         self,
@@ -143,8 +184,9 @@ class HuggingFacePapersClient:
 
             log.debug(f"Received {len(raw_papers)} papers from API")
 
-            # Parse and filter papers
+            # Parse and filter papers (first pass without AI summary)
             papers: list[Paper] = []
+            raw_paper_map: dict[str, object] = {}  # Map paper_id to raw_paper for later
             filtered_count = 0
 
             for raw_paper in raw_papers:
@@ -157,6 +199,7 @@ class HuggingFacePapersClient:
                         continue
 
                     papers.append(paper)
+                    raw_paper_map[paper.id] = raw_paper
 
                 except Exception as e:
                     log.warning(f"Failed to parse paper: {e}")
@@ -169,6 +212,20 @@ class HuggingFacePapersClient:
 
             # Limit results
             papers = papers[:limit]
+
+            # Fetch AI summaries for limited papers
+            if papers and self._http_client:
+                log.info(f"Fetching AI summaries for {len(papers)} papers...")
+                final_papers: list[Paper] = []
+                for paper in papers:
+                    ai_summary = await self.fetch_ai_summary(paper.id)
+                    if ai_summary:
+                        # Re-parse with AI summary
+                        raw_paper = raw_paper_map.get(paper.id)
+                        if raw_paper:
+                            paper = self._parse_paper(raw_paper, ai_summary=ai_summary)
+                    final_papers.append(paper)
+                papers = final_papers
 
             log.info(
                 f"Successfully fetched {len(papers)} trending papers "
@@ -208,11 +265,12 @@ class HuggingFacePapersClient:
             week=week,
         )
 
-    def _parse_paper(self, raw_paper) -> Paper:
+    def _parse_paper(self, raw_paper, ai_summary: Optional[str] = None) -> Paper:
         """Parse PaperInfo from huggingface_hub to Paper model.
 
         Args:
             raw_paper: PaperInfo object from huggingface_hub
+            ai_summary: Optional AI-generated summary
 
         Returns:
             Paper: Parsed paper object
@@ -264,6 +322,7 @@ class HuggingFacePapersClient:
             authors=authors,
             published_at=published_at,
             upvotes=upvotes,
+            ai_summary=ai_summary,
         )
 
 

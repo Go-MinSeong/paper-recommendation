@@ -204,6 +204,19 @@ def format_paper_thread_message(
             }
         )
 
+    # AI-generated summary (if available)
+    if rec.ai_summary:
+        blocks.append({"type": "divider"})
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*🤖 AI Summary*\n_{rec.ai_summary}_",
+                },
+            }
+        )
+
     # Action button
     blocks.append(
         {
