@@ -149,13 +149,9 @@ class AutoRecommendScheduler:
                 return
 
             # Post each paper as a thread with summaries as reply
-            for idx, rec in enumerate(recommendations, 1):
+            for rec in recommendations:
                 # Format main thread message (title, date, citations, upvotes, link)
-                thread_blocks = format_paper_thread_message(
-                    rec=rec,
-                    paper_index=idx,
-                    total_papers=len(recommendations),
-                )
+                thread_blocks = format_paper_thread_message(rec=rec)
 
                 # Post main thread message
                 thread_response = await self.slack_client.chat_postMessage(

@@ -290,15 +290,9 @@ async def _process_insight_request(
         )
 
         # Post each paper as a thread with summaries as reply
-        total_papers = len(recommendations)
-
-        for idx, rec in enumerate(recommendations, 1):
+        for rec in recommendations:
             # Format main thread message (title, date, citations, upvotes, link)
-            thread_blocks = format_paper_thread_message(
-                rec=rec,
-                paper_index=idx,
-                total_papers=total_papers,
-            )
+            thread_blocks = format_paper_thread_message(rec=rec)
 
             # Post main thread message
             thread_response = await client.chat_postMessage(
@@ -322,7 +316,7 @@ async def _process_insight_request(
                 text=f"📝 {rec.title} - 요약",
             )
 
-            log.debug(f"Posted paper {idx}/{total_papers} with thread reply: {rec.title[:50]}...")
+            log.debug(f"Posted paper with thread reply: {rec.title[:50]}...")
 
         # Send success message to user
         await client.chat_postEphemeral(

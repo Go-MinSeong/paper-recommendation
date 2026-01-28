@@ -132,8 +132,6 @@ def format_single_paper_message(
 
 def format_paper_thread_message(
     rec: Recommendation,
-    paper_index: int,
-    total_papers: int,
 ) -> list[dict[str, Any]]:
     """Format paper metadata as thread main message.
 
@@ -142,15 +140,13 @@ def format_paper_thread_message(
 
     Args:
         rec: Paper recommendation
-        paper_index: 1-based index of this paper
-        total_papers: Total number of papers in this recommendation batch
 
     Returns:
         List of Block Kit blocks for the thread main message
 
     Example:
         >>> rec = Recommendation(...)
-        >>> blocks = format_paper_thread_message(rec, 1, 3)
+        >>> blocks = format_paper_thread_message(rec)
     """
     blocks: list[dict[str, Any]] = []
 
@@ -176,7 +172,7 @@ def format_paper_thread_message(
     if rec.citation_count is not None:
         metadata_parts.append(f"📖 인용: *{rec.citation_count}회*")
 
-    if rec.upvotes is not None:
+    if rec.upvotes is not None and rec.upvotes > 0:
         metadata_parts.append(f"👍 Upvotes: *{rec.upvotes}*")
 
     if metadata_parts:
@@ -189,19 +185,6 @@ def format_paper_thread_message(
                 },
             }
         )
-
-    # Context with index
-    blocks.append(
-        {
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": f"추천 {paper_index}/{total_papers}",
-                }
-            ],
-        }
-    )
 
     # Action button
     blocks.append(
