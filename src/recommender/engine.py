@@ -68,6 +68,7 @@ class RecommendationEngine:
         recommendation_history: RecommendationHistoryStorage,
         top_k: int | None = None,
         min_score: float | None = None,
+        min_upvotes: int | None = None,
     ) -> None:
         """Initialize recommendation engine.
 
@@ -77,6 +78,7 @@ class RecommendationEngine:
             recommendation_history: Storage for tracking recommended papers
             top_k: Number of recommendations (uses settings if not provided)
             min_score: Min similarity score (uses settings if not provided)
+            min_upvotes: Min upvotes required (uses settings if not provided)
 
         Examples:
             >>> vector_store = VectorStoreService()
@@ -92,9 +94,10 @@ class RecommendationEngine:
         self.recommendation_history = recommendation_history
         self.top_k = top_k or settings.top_k_recommendations
         self.min_score = min_score or settings.min_similarity_score
+        self.min_upvotes = min_upvotes if min_upvotes is not None else settings.paper_min_upvotes
 
         log.info(
-            f"Initialized RecommendationEngine (top_k={self.top_k}, min_score={self.min_score})"
+            f"Initialized RecommendationEngine (top_k={self.top_k}, min_score={self.min_score}, min_upvotes={self.min_upvotes})"
         )
 
     async def recommend(self, user_interest: UserInterest) -> list[Recommendation]:
@@ -164,6 +167,22 @@ class RecommendationEngine:
 
             if not new_papers:
                 log.warning("All matching papers have been previously recommended")
+                return []
+
+            # Step 3.5: Filter by minimum upvotes
+            if self.min_upvotes > 0:
+                log.debug(f"[Engine] Step 3.5: Filtering by min_upvotes >= {self.min_upvotes}...")
+                before_filter = len(new_papers)
+                new_papers = [
+                    p for p in new_papers
+                    if p.get("upvotes") is not None and p.get("upvotes") >= self.min_upvotes
+                ]
+                upvotes_filtered = before_filter - len(new_papers)
+                if upvotes_filtered > 0:
+                    log.info(f"Filtered out {upvotes_filtered} papers with upvotes < {self.min_upvotes}")
+
+            if not new_papers:
+                log.warning(f"No papers with upvotes >= {self.min_upvotes}")
                 return []
 
             # Limit to top_k after filtering
