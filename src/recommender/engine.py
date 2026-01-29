@@ -203,10 +203,18 @@ class RecommendationEngine:
                             f"'{paper['title'][:50]}...' (score={paper['score']:.4f})"
                         )
 
-                        # Fetch citation count and publication date from Semantic Scholar
+                        # Use published_at from Milvus if available
+                        published_at = None
+                        stored_date = paper.get("published_at", "")
+                        if stored_date:
+                            try:
+                                published_at = datetime.fromisoformat(stored_date)
+                            except ValueError:
+                                pass
+
+                        # Fetch citation count (and published_at fallback) from Semantic Scholar
                         log.debug(f"[Engine] Fetching metadata from Semantic Scholar for paper {idx+1}...")
                         citation_count = None
-                        published_at = None
 
                         try:
                             ss_paper = await ss_client.get_paper_by_arxiv_id(paper["paper_id"])
@@ -215,15 +223,16 @@ class RecommendationEngine:
 
                             if ss_paper:
                                 citation_count = ss_paper.get("citationCount")
-                                pub_date_str = ss_paper.get("publicationDate")
-                                if pub_date_str:
-                                    try:
-                                        published_at = datetime.fromisoformat(pub_date_str)
-                                    except ValueError:
-                                        pass
+                                if not published_at:
+                                    pub_date_str = ss_paper.get("publicationDate")
+                                    if pub_date_str:
+                                        try:
+                                            published_at = datetime.fromisoformat(pub_date_str)
+                                        except ValueError:
+                                            pass
                                 log.debug(
                                     f"[Engine] Semantic Scholar: citations={citation_count}, "
-                                    f"published={pub_date_str}"
+                                    f"published_at={published_at}"
                                 )
                         except Exception as e:
                             log.warning(f"Failed to fetch Semantic Scholar data: {e}")

@@ -168,19 +168,20 @@ def format_paper_thread_message(
         # Authors are comma-separated, get the first one
         first_author = rec.authors.split(",")[0].strip()
 
-    # Build metadata section - single line: author, upvotes, date
+    # Build metadata section - single line: date, author, upvotes, citations
+    # Format: 📅 2025-01-28  👤 AuthorName et al. 👍 45 📖 인용 123회
     metadata_parts = []
+    if rec.published_at:
+        date_str = rec.published_at.strftime("%Y-%m-%d")
+        metadata_parts.append(f"📅 {date_str}")
     if first_author:
         metadata_parts.append(f"👤 *{first_author}* et al.")
     if rec.upvotes is not None and rec.upvotes > 0:
         metadata_parts.append(f"👍 *{rec.upvotes}*")
-    if rec.published_at:
-        date_str = rec.published_at.strftime("%Y-%m-%d")
-        metadata_parts.append(f"📅 {date_str}")
     if rec.citation_count is not None:
         metadata_parts.append(f"📖 인용 *{rec.citation_count}회*")
 
-    metadata_text = " • ".join(metadata_parts) if metadata_parts else ""
+    metadata_text = "  ".join(metadata_parts) if metadata_parts else ""
 
     if metadata_text:
         blocks.append(

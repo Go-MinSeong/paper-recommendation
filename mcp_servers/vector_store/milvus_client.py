@@ -189,6 +189,11 @@ class MilvusClient:
                     dtype=DataType.VARCHAR,
                     max_length=2000,
                 ),
+                FieldSchema(
+                    name="published_at",
+                    dtype=DataType.VARCHAR,
+                    max_length=30,
+                ),
             ]
 
             schema = CollectionSchema(
@@ -234,6 +239,7 @@ class MilvusClient:
         upvotes: list[int],
         authors: list[str] | None = None,
         ai_summaries: list[str] | None = None,
+        published_at_list: list[str] | None = None,
     ) -> list[str]:
         """Insert paper embeddings into Milvus.
 
@@ -246,6 +252,7 @@ class MilvusClient:
             upvotes: List of upvote counts
             authors: List of author strings (optional)
             ai_summaries: List of AI-generated summaries (optional)
+            published_at_list: List of publication dates as ISO strings (optional)
 
         Returns:
             list[str]: List of inserted IDs
@@ -265,7 +272,8 @@ class MilvusClient:
             ...     embeddings=[[0.1, 0.2, ...]],
             ...     upvotes=[10],
             ...     authors=["John Doe, Jane Smith"],
-            ...     ai_summaries=["AI generated summary text"]
+            ...     ai_summaries=["AI generated summary text"],
+            ...     published_at_list=["2025-01-28"]
             ... )
         """
         if not self._collection:
@@ -279,8 +287,12 @@ class MilvusClient:
         if ai_summaries is None:
             ai_summaries = [""] * len(paper_ids)
 
+        # Default published_at_list to empty strings if not provided
+        if published_at_list is None:
+            published_at_list = [""] * len(paper_ids)
+
         # Validate input lengths
-        lengths = [len(paper_ids), len(titles), len(abstracts), len(urls), len(embeddings), len(upvotes), len(authors), len(ai_summaries)]
+        lengths = [len(paper_ids), len(titles), len(abstracts), len(urls), len(embeddings), len(upvotes), len(authors), len(ai_summaries), len(published_at_list)]
         if len(set(lengths)) != 1:
             raise ValueError(f"All input lists must have the same length, got {lengths}")
 
@@ -300,6 +312,7 @@ class MilvusClient:
                 upvotes,
                 authors,
                 ai_summaries,
+                published_at_list,
             ]
 
             log.info(f"Inserting {len(paper_ids)} papers into Milvus")
@@ -372,7 +385,7 @@ class MilvusClient:
                 anns_field="embedding",
                 param=search_params,
                 limit=top_k,  # Return exactly top_k after filtering
-                output_fields=["paper_id", "title", "abstract", "url", "upvotes", "authors", "ai_summary"],
+                output_fields=["paper_id", "title", "abstract", "url", "upvotes", "authors", "ai_summary", "published_at"],
             )
 
             # Log raw search results
@@ -398,6 +411,7 @@ class MilvusClient:
                             "upvotes": hit.entity.get("upvotes"),
                             "authors": hit.entity.get("authors", ""),
                             "ai_summary": hit.entity.get("ai_summary", ""),
+                            "published_at": hit.entity.get("published_at", ""),
                             "score": float(hit.score),
                         })
                     else:
