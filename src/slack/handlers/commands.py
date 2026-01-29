@@ -363,9 +363,9 @@ def create_my_interest_handler(
         log.info(f"Received /my_interest from user {user_id}")
 
         try:
-            user_interest = await interest_storage.get(user_id)
+            all_interests = await interest_storage.get_all()
 
-            if not user_interest:
+            if not all_interests:
                 await client.chat_postEphemeral(
                     channel=channel_id,
                     user=user_id,
@@ -377,14 +377,16 @@ def create_my_interest_handler(
                 )
                 return
 
+            latest = max(all_interests, key=lambda i: i.updated_at)
+
             await client.chat_postEphemeral(
                 channel=channel_id,
                 user=user_id,
                 text=(
-                    f"📌 *등록된 관심사*\n\n"
-                    f"> {user_interest.interest}\n\n"
-                    f"등록일: {user_interest.created_at.strftime('%Y-%m-%d %H:%M')}\n"
-                    f"수정일: {user_interest.updated_at.strftime('%Y-%m-%d %H:%M')}\n\n"
+                    f"📌 *현재 적용 중인 관심사*\n\n"
+                    f"> {latest.interest}\n\n"
+                    f"설정자: <@{latest.user_id}>\n"
+                    f"수정일: {latest.updated_at.strftime('%Y-%m-%d %H:%M')}\n\n"
                     f"_관심사를 변경하려면 `/set_interest <새 관심사>`를 사용하세요._"
                 ),
             )
