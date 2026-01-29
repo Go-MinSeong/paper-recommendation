@@ -128,17 +128,21 @@ class RecommendationScheduler:
         successful_count = 0
 
         try:
-            # Get all user interests
+            # Get all user interests and pick the most recently updated one
             all_interests = await self.interest_storage.get_all()
 
             if not all_interests:
                 log.info("No users with registered interests found")
                 return 0
 
-            log.info(f"Found {len(all_interests)} users with registered interests")
+            # Use only the most recently updated interest
+            latest_interest = max(all_interests, key=lambda i: i.updated_at)
+            log.info(
+                f"Found {len(all_interests)} users with interests, "
+                f"using latest from user {latest_interest.user_id}"
+            )
 
-            # Generate and send recommendations for each user
-            for interest in all_interests:
+            for interest in [latest_interest]:
                 try:
                     log.info(f"Generating recommendations for user {interest.user_id}")
 
