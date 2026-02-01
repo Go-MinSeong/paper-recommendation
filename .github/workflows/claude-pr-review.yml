@@ -7,6 +7,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  issues: write
   id-token: write
 
 jobs:
@@ -14,9 +15,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ github.token }}
-          prompt: "이 PR의 변경사항을 리뷰해주세요. 버그, 보안 이슈, 코드 품질에 집중하고 한국어로 피드백해주세요."
+          prompt: |
+            이 PR의 diff에만 집중하여 리뷰해주세요.
+            기존 코드베이스 전체를 검토하지 말고, 이 PR에서 변경된 파일과 라인만 리뷰하세요.
+            버그, 보안 이슈, 코드 품질에 집중하고 한국어로 피드백해주세요.
