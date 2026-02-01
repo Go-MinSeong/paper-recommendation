@@ -3,7 +3,7 @@
 This module provides data models for tracking recommended papers.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
@@ -20,7 +20,7 @@ class RecommendedPaper(BaseModel):
 
     paper_id: str = Field(..., description="Paper ID")
     title: str = Field(..., description="Paper title")
-    recommended_at: datetime = Field(default_factory=datetime.now, description="Recommendation timestamp")
+    recommended_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Recommendation timestamp")
     recommended_to_user_id: str = Field(..., description="User ID who received the recommendation")
 
 

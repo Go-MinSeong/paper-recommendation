@@ -131,7 +131,7 @@ class HuggingFacePapersClient:
         limit: Optional[int] = None,
     ) -> list:
         """Async wrapper for list_daily_papers using thread executor."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self._executor,
             lambda: self._list_daily_papers_sync(week, sort, limit),
