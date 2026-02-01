@@ -19,4 +19,4 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ github.token }}
-          direct_prompt: "이 PR의 변경사항을 리뷰해주세요. 버그, 보안 이슈, 코드 품질에 집중하고 한국어로 피드백해주세요."
+          prompt: "이 PR의 변경사항을 리뷰해주세요. 버그, 보안 이슈, 코드 품질에 집중하고 한국어로 피드백해주세요."
